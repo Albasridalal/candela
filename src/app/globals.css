@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Salon brand system.
+  This is a TEMPORARY default brand. Everything is driven from these
+  variables so re-branding later only requires editing this block.
+  Direction: white/off-white surfaces, dark ink text, elegant deep-teal
+  accent, rounded cards, generous whitespace, minimal shadows.
+*/
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Brand accent - deep teal */
+  --color-brand: #0f6b64;
+  --color-brand-50: #edf7f6;
+  --color-brand-100: #d3ebe8;
+  --color-brand-200: #a7d7d1;
+  --color-brand-300: #7bc3ba;
+  --color-brand-400: #4fafa3;
+  --color-brand-500: #23968a;
+  --color-brand-600: #0f6b64;
+  --color-brand-700: #0c5450;
+  --color-brand-800: #093e3b;
+  --color-brand-900: #062825;
+
+  /* Neutral surfaces */
+  --color-surface: #ffffff;
+  --color-surface-subtle: #faf9f7;
+  --color-ink: #1c1917;
+  --color-ink-muted: #6b6560;
+  --color-border: #ece8e3;
+
+  /* Status colors */
+  --color-success: #1a8f5e;
+  --color-warning: #b8790f;
+  --color-danger: #c0362c;
+  --color-info: #2563a8;
+
+  /* Shape */
+  --radius-card: 1rem;
+  --radius-pill: 999px;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-surface-subtle);
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Feels native on mobile: no text selection callouts on nav/buttons, smooth scroll */
+button,
+a {
+  -webkit-touch-callout: none;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Hide scrollbar on horizontal scrollers (staff columns, category tabs) but keep scrollable */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Safe-area padding for iPhone home indicator */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}

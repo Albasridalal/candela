@@ -1,0 +1,10 @@
+{
+  "name": "Demo Salon",
+  "short_name": "Demo Salon",
+  "description": "Salon management, appointments, and booking.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": []
+}
