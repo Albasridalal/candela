@@ -85,8 +85,8 @@ export async function getStaffAvailableSlots(params: {
         .select("start_time, end_time")
         .eq("staff_id", staffId)
         .neq("status", "cancelled")
-        .gte("start_time", `${date}T00:00:00`)
-        .lte("start_time", `${date}T23:59:59`),
+        .gte("start_time", `${date}T00:00:00+03:00`)
+        .lte("start_time", `${date}T23:59:59+03:00`),
     ]);
 
   if (timeOff && timeOff.length > 0) return []; // on leave that day

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/serviceRole";
 import { publicBookingCustomerSchema } from "@/lib/validations/schemas";
 import { getStaffAvailableSlots } from "@/lib/booking/availability";
+import { combineDateAndTime, computeEndTime } from "@/lib/utils/date";
 
 interface BookBody {
   branchId: string;
@@ -75,10 +76,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const startTime = new Date(`${date}T${time}:00`).toISOString();
-  const endTime = new Date(
-    new Date(startTime).getTime() + service.duration_minutes * 60000
-  ).toISOString();
+  const startTime = combineDateAndTime(date, time);
+  const endTime = computeEndTime(startTime, service.duration_minutes);
 
   // Match an existing customer by phone within this business, or create one.
   const normalizedPhone = customerInput.phone.trim();

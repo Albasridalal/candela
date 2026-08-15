@@ -58,8 +58,10 @@ export function CalendarView({
       .order("full_name");
     setStaff((staffRows as Staff[]) ?? []);
 
-    const from = formatDateInput(rangeStart) + "T00:00:00";
-    const to = formatDateInput(rangeEnd) + "T23:59:59";
+    // Explicit +03:00 (Kuwait, no DST) so Postgres reads these as the
+    // salon's actual day boundaries rather than its own session timezone.
+    const from = formatDateInput(rangeStart) + "T00:00:00+03:00";
+    const to = formatDateInput(rangeEnd) + "T23:59:59+03:00";
 
     const { data } = await supabase
       .from("appointments")
