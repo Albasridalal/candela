@@ -146,14 +146,11 @@ export function CalendarView({
 
   const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i);
 
-  const showNowLine =
-    view === "day" &&
-    isSameDay(currentDate, now) &&
-    now.getHours() >= DAY_START_HOUR &&
-    now.getHours() < DAY_END_HOUR;
-  const nowTop =
-    HEADER_HEIGHT +
-    (((now.getHours() - DAY_START_HOUR) * 60 + now.getMinutes()) / 60) * HOUR_HEIGHT;
+  const showNowLine = view === "day" && isSameDay(currentDate, now);
+  const gridHeight = hours.length * HOUR_HEIGHT;
+  const minutesFromDayStart = (now.getHours() - DAY_START_HOUR) * 60 + now.getMinutes();
+  const nowOffset = Math.min(Math.max((minutesFromDayStart / 60) * HOUR_HEIGHT, 0), gridHeight);
+  const nowTop = HEADER_HEIGHT + nowOffset;
 
   return (
     <div>
@@ -263,14 +260,9 @@ export function CalendarView({
 
               {showNowLine && (
                 <div
-                  className="pointer-events-none absolute inset-x-0 z-20 flex items-center"
+                  className="pointer-events-none absolute inset-x-0 z-20 h-px bg-red-500"
                   style={{ top: nowTop, transform: "translateY(-50%)" }}
-                >
-                  <span className="ml-1 shrink-0 rounded-full border border-red-500 bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-red-500 shadow-sm">
-                    {format(now, "hh:mm a")}
-                  </span>
-                  <div className="h-px flex-1 bg-red-500" />
-                </div>
+                />
               )}
             </div>
           </div>
