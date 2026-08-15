@@ -3,6 +3,30 @@ import { createServiceRoleClient } from "@/lib/supabase/serviceRole";
 
 const SLOT_STEP_MINUTES = 15;
 const MIN_LEAD_MINUTES = 30; // don't offer a slot starting less than 30 min from now
+const BUSINESS_TIMEZONE = "Asia/Kuwait";
+
+/**
+ * The server's own clock (e.g. Vercel runs in UTC) is not the salon's
+ * clock. Every "what time is it right now" comparison here must go
+ * through this so today's already-passed slots actually get hidden.
+ */
+function getLocalParts(date: Date, timeZone: string): { dateStr: string; minutesOfDay: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) map[part.type] = part.value;
+  return {
+    dateStr: `${map.year}-${map.month}-${map.day}`,
+    minutesOfDay: Number(map.hour) * 60 + Number(map.minute),
+  };
+}
 
 interface OpeningHoursDay {
   open: string;
@@ -80,13 +104,13 @@ export async function getStaffAvailableSlots(params: {
   if (rangeEnd - rangeStart < serviceDurationMinutes) return [];
 
   const busyRanges = (appointments ?? []).map((a) => ({
-    start: new Date(a.start_time).getHours() * 60 + new Date(a.start_time).getMinutes(),
-    end: new Date(a.end_time).getHours() * 60 + new Date(a.end_time).getMinutes(),
+    start: getLocalParts(new Date(a.start_time), BUSINESS_TIMEZONE).minutesOfDay,
+    end: getLocalParts(new Date(a.end_time), BUSINESS_TIMEZONE).minutesOfDay,
   }));
 
-  const now = new Date();
-  const isToday = date === now.toISOString().slice(0, 10);
-  const earliestToday = isToday ? now.getHours() * 60 + now.getMinutes() + MIN_LEAD_MINUTES : 0;
+  const nowParts = getLocalParts(new Date(), BUSINESS_TIMEZONE);
+  const isToday = date === nowParts.dateStr;
+  const earliestToday = isToday ? nowParts.minutesOfDay + MIN_LEAD_MINUTES : 0;
 
   const slots: string[] = [];
   for (
