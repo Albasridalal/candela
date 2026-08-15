@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils/cn";
 const DAY_START_HOUR = 9;
 const DAY_END_HOUR = 21;
 const HOUR_HEIGHT = 64; // px per hour in day view
+const HEADER_HEIGHT = 40; // h-10 header row above the hour grid
 
 export function CalendarView({
   branches,
@@ -35,6 +36,12 @@ export function CalendarView({
   const [isLoading, setIsLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(autoOpenNew);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const rangeStart = view === "day" ? currentDate : startOfWeek(currentDate);
   const rangeEnd = view === "day" ? currentDate : addDays(rangeStart, 6);
@@ -139,6 +146,15 @@ export function CalendarView({
 
   const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i);
 
+  const showNowLine =
+    view === "day" &&
+    isSameDay(currentDate, now) &&
+    now.getHours() >= DAY_START_HOUR &&
+    now.getHours() < DAY_END_HOUR;
+  const nowTop =
+    HEADER_HEIGHT +
+    (((now.getHours() - DAY_START_HOUR) * 60 + now.getMinutes()) / 60) * HOUR_HEIGHT;
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between gap-2">
@@ -190,7 +206,7 @@ export function CalendarView({
           <EmptyState icon={CalendarDays} title="No active staff at this branch" />
         ) : (
           <div className="overflow-x-auto no-scrollbar rounded-card border border-border bg-surface">
-            <div className="flex" style={{ minWidth: `${64 + staff.length * 160}px` }}>
+            <div className="relative flex" style={{ minWidth: `${64 + staff.length * 160}px` }}>
               {/* Time gutter */}
               <div className="w-16 shrink-0 border-r border-border">
                 <div className="h-10 border-b border-border" />
@@ -244,6 +260,18 @@ export function CalendarView({
                   </div>
                 );
               })}
+
+              {showNowLine && (
+                <div
+                  className="pointer-events-none absolute inset-x-0 z-20 flex items-center"
+                  style={{ top: nowTop, transform: "translateY(-50%)" }}
+                >
+                  <span className="ml-1 shrink-0 rounded-full border border-red-500 bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-red-500 shadow-sm">
+                    {format(now, "hh:mm a")}
+                  </span>
+                  <div className="h-px flex-1 bg-red-500" />
+                </div>
+              )}
             </div>
           </div>
         )
