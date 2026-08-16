@@ -86,16 +86,44 @@ export function AppointmentFormModal({
   const [newCustomer, setNewCustomer] = useState<{ full_name: string; phone: string } | null>(null);
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
 
+  // Built during render, not in an effect: an effect that resets the form runs
+  // *after* the modal is on screen, so a fast edit could be silently reverted.
+  const formValues = useMemo<AppointmentFormValues>(() => {
+    if (!open) return emptyValues;
+
+    if (appointment) {
+      const start = toSalonWallClock(appointment.start_time);
+      return {
+        customer_id: appointment.customer_id,
+        service_id: appointment.service_id ?? "",
+        staff_id: appointment.staff_id,
+        date: start.date,
+        start_time: start.time,
+        duration_minutes: appointment.service_duration_minutes,
+        price: appointment.service_price,
+        status: appointment.status,
+        notes: appointment.notes ?? "",
+      };
+    }
+
+    return {
+      ...emptyValues,
+      staff_id: slot?.staffId ?? "",
+      date: slot?.dateKey ?? todayInSalon(),
+      start_time: slot?.time ?? "10:00",
+    };
+  }, [open, appointment, slot]);
+
   const {
     register,
     handleSubmit,
     watch,
     setValue,
-    reset,
     formState: { errors },
   } = useForm<AppointmentFormValues>({
     resolver: zodResolver(appointmentSchema),
     defaultValues: emptyValues,
+    values: formValues,
   });
 
   const customerId = watch("customer_id");
@@ -118,38 +146,14 @@ export function AppointmentFormModal({
     return formatTimeLabel(minutesToTime(end));
   }, [startTime, durationMinutes]);
 
-  // Load the form whenever the modal opens, either from the appointment being
-  // edited or from the calendar slot that was clicked.
+  // Reset the bits of UI state that live outside the form each time it opens.
   useEffect(() => {
     if (!open) return;
     setFormError(null);
     setCustomerQuery("");
     setNewCustomer(null);
-
-    if (appointment) {
-      const start = toSalonWallClock(appointment.start_time);
-      reset({
-        customer_id: appointment.customer_id,
-        service_id: appointment.service_id ?? "",
-        staff_id: appointment.staff_id,
-        date: start.date,
-        start_time: start.time,
-        duration_minutes: appointment.service_duration_minutes,
-        price: appointment.service_price,
-        status: appointment.status,
-        notes: appointment.notes ?? "",
-      });
-      setShowCustomerPicker(false);
-    } else {
-      reset({
-        ...emptyValues,
-        staff_id: slot?.staffId ?? "",
-        date: slot?.dateKey ?? todayInSalon(),
-        start_time: slot?.time ?? "10:00",
-      });
-      setShowCustomerPicker(true);
-    }
-  }, [open, appointment, slot, reset]);
+    setShowCustomerPicker(!appointment);
+  }, [open, appointment]);
 
   // Picking a service fills in its duration and price (both stay editable).
   function selectService(id: string) {
