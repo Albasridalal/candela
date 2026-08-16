@@ -1,25 +1,23 @@
-import { getCurrentProfile, getBranches } from "@/lib/supabase/queries";
-import { BranchProvider } from "@/components/shared/BranchProvider";
-import { BottomNav } from "@/components/nav/BottomNav";
+import { getBusiness, getCurrentProfile } from "@/lib/supabase/queries";
+import { BottomNav, SideNav } from "@/components/nav/AppNav";
 import { NoProfileNotice } from "@/components/shared/NoProfileNotice";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
 
-  if (!profile) {
-    // Authenticated in Supabase Auth, but no profile row linked to a
-    // business yet. See supabase/seed.sql "LINK YOUR LOGIN" section.
-    return <NoProfileNotice />;
-  }
+  // Signed in, but not linked to a salon — normally impossible now that signup
+  // provisions a profile (supabase/migrations/0010_auth_bootstrap.sql).
+  if (!profile) return <NoProfileNotice />;
 
-  const branches = await getBranches();
+  const business = await getBusiness();
 
   return (
-    <BranchProvider branches={branches}>
-      <div className="mx-auto min-h-dvh max-w-6xl pb-24 sm:pb-8">
-        <main className="px-4 pt-6 sm:px-6 lg:px-8">{children}</main>
+    <div className="flex min-h-dvh">
+      <SideNav salonName={business?.name ?? "Salon"} />
+      <div className="min-w-0 flex-1">
+        <main className="mx-auto max-w-6xl px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8">{children}</main>
       </div>
       <BottomNav />
-    </BranchProvider>
+    </div>
   );
 }

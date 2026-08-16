@@ -1,195 +1,177 @@
-# Demo Salon — Salon Management App
+# Salon Management App
 
-Mobile-first salon management system built with Next.js, TypeScript, Tailwind CSS, and Supabase.
+A small-salon booking system: an admin area for the salon team (dashboard, calendar,
+services, staff, customers, opening hours) and a public, no-login booking page for
+customers.
 
-## Current scope (V1 priority release)
+Built with Next.js (App Router) · TypeScript · Tailwind CSS · Supabase (Postgres + Auth).
 
-This build focuses on one complete, working end-to-end loop, per project priority:
+---
 
-**Owner adds services → Owner adds staff + working hours → Customer opens `/book` (no login) → picks
-service/staff/date/time → booking is created → customer is matched/created by phone → booking appears
-instantly in the salon calendar.**
+## What's built
 
-Built and working:
+| Area | What it does |
+| --- | --- |
+| **Dashboard** | Today's appointments, next 7 days, total customers, active staff, expected takings, and one-tap buttons to add a booking / customer / service / staff member. |
+| **Calendar** | Day (staff columns), week and month views · staff filter · drag a card to reschedule it (to another time **and** another staff member in day view) · tap an empty slot to book it · off-hours are shaded · a live "now" line. |
+| **Appointments** | Customer (searchable, or created inline), phone, service, staff, date, start time, duration, price, booking status and notes. End time is always derived from the duration. Double-booking is blocked client-side **and** by a database constraint. |
+| **Services** | Add / edit / delete (archives instead when history exists), category (create new categories inline), duration, price, active/inactive, and which staff can perform each service. |
+| **Staff** | Profile, services provided, working days and hours per weekday, time off, active/inactive. |
+| **Customers** | Name, phone, email, birthday, notes, booking history, visit/cancellation/no-show counts, and search by name or phone. |
+| **Opening hours** | Per-weekday opening and closing times, with any day markable as closed (Settings). |
+| **Public booking** | `/book` — mobile-first, no login. Service → staff → date → time → details → confirmation with a reference number. Only offers times that fit salon opening hours, staff working hours, time off, the service duration and existing bookings. Bookings land straight in the admin calendar, and the customer is matched by phone or created. |
 
-- **Services** — categories, name, description, duration, price (KWD, 3 decimals), which staff can
-  perform each service, active/inactive, add/edit/delete (soft-archives if referenced by history),
-  search and filter by category/status.
-- **Customers** — full database (name, mobile, email, birthday, notes), first/last visit, total
-  visits, cancelled/no-show counts, preferred service & staff (derived automatically from history),
-  appointment + purchase history, search by name or mobile, add/edit.
-- **Online booking (`/book`)** — public, no login required. Category → service → staff (or "Any
-  available staff") → date → real-time available times → contact details → confirmation with a
-  unique reference number. Matches existing customers by mobile number instead of duplicating them.
-- **Calendar** — day view with staff columns and time-positioned appointment cards, week view,
-  manual add/edit, cancel, full status lifecycle, double-booking prevention (both client-side and a
-  hard database constraint).
-- **Staff** — profile, services performed, working hours per weekday, breaks/time off (blocks
-  booking availability), active/inactive. This is what powers the availability engine above.
-- **Branches** — locations, contact info, active/archive, and a per-weekday opening-hours editor.
-  Opening hours directly bound what times the availability engine can ever offer online, so this
-  was pulled forward from "deferred" — without it, hours could only be set via Supabase Studio.
+Deliberately **not** built (the database schema keeps room for them, but there is no UI
+and nothing links to them): POS, sales, inventory, expenses, payroll, accounting,
+marketing and advanced reports.
 
-Everything else (POS, Sales, Expenses, Inventory, Reports, Journal, Todo, Inbox, Marketing,
-Settings) is intentionally deferred — the dashboard links to a "Coming soon" screen for each so
-nothing 404s, but no functionality lives there yet. The database schema for all of it already
-exists (see `supabase/migrations/0001_schema.sql`) so those modules can be built on top without
-another schema migration.
-
-## Tech stack
-
-Next.js (App Router) · TypeScript · Tailwind CSS · Supabase (Postgres, Auth, Storage) · React Hook
-Form + Zod · Lucide icons.
-
-## ⚠️ Important — this was built without a network connection
-
-The code in this repository was hand-written by an AI assistant working in a sandboxed environment
-**with no internet access**, so it was never able to run `npm install`, `next build`, `next lint`,
-or `tsc`. Everything here is believed correct based on careful reading of each library's API, but
-**you must run the verification steps below yourself** before treating this as production-ready.
-Expect to fix a small number of type or import issues on the first build — that's normal for code
-that has never been compiled.
+---
 
 ## Setup
 
-### 1. Install dependencies
+### 1. Install
 
 ```bash
 npm install
 ```
 
-### 2. Create a Supabase project
+### 2. Point it at a Supabase project
 
-Go to [supabase.com](https://supabase.com), create a project, then grab three values from
-**Project Settings → API**:
-
-- Project URL
-- `anon` `public` key
-- `service_role` key (keep this one secret — server-only)
-
-Copy `.env.example` to `.env.local` and fill them in:
+Copy `.env.example` to `.env.local` and fill in the values from your Supabase project
+(Dashboard → Project Settings → API):
 
 ```bash
 cp .env.example .env.local
 ```
 
-### 3. Run database migrations
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key (used by the admin app; RLS protects the data) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Server only.** Used exclusively by `src/app/api/public/**` so the public booking page can read availability and write a booking without a login. |
+| `NEXT_PUBLIC_SALON_TIMEZONE` | IANA timezone the salon's clock runs on, e.g. `Asia/Kuwait`. Optional — defaults to `Asia/Kuwait`. |
 
-In the Supabase Dashboard, open **SQL Editor** and run each file in `supabase/migrations/` **in
-order** (`0001` through `0008`). Alternatively, with the [Supabase CLI](https://supabase.com/docs/guides/cli):
+### 3. Create the schema
+
+With the Supabase CLI (recommended — this is how the app is developed and tested):
 
 ```bash
-supabase link --project-ref your-project-ref
-supabase db push
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push          # applies supabase/migrations/*.sql in order
 ```
 
-### 4. Load seed data
+Or, without the CLI: open the Supabase SQL editor and run every file in
+`supabase/migrations/` in filename order.
 
-Run `supabase/seed.sql` in the SQL Editor. This creates:
+Optional demo data (a salon, four staff, a service menu, customers and a few days of
+appointments):
 
-- Business: **Demo Salon**
-- Branch: **Main Branch**
-- Staff: Sarah, Maria, Anna, Jenny (with working hours)
-- Services across Nails, Hair, Massage, Brows & Lashes, Moroccan Bath categories
-- 6 sample customers and a realistic spread of appointments (today, tomorrow, and a no-show)
+```bash
+psql "<your connection string>" -f supabase/seed.sql
+```
 
-### 5. Link your login to Demo Salon
-
-Sign up through the app's `/login` screen (this creates a Supabase Auth user, but **not** yet a
-`profiles` row, so the app will show "Account not linked yet"). Then, in Supabase SQL Editor, run
-the snippet at the very bottom of `supabase/seed.sql` — it links your new login to the Demo Salon
-business as `owner`. Refresh the app.
-
-### 6. Run locally
+### 4. Run it
 
 ```bash
 npm run dev
 ```
 
-Visit `http://localhost:3000` for the staff app, and `http://localhost:3000/book` for the public
-booking flow (open this one in an incognito window — it deliberately requires no login).
+- Admin: <http://localhost:3000> → redirects to `/login`
+- Public booking page: <http://localhost:3000/book>
 
-### 7. Verify it compiles and lints
+Create your login on `/login` → **Sign up**. The first signup automatically creates the
+salon and its opening hours and makes you the owner; anyone who signs up afterwards joins
+the same salon (see `supabase/migrations/0010_auth_bootstrap.sql`). There is no manual SQL
+step. If you'd rather only you and one other admin can sign in, turn off signups in
+Supabase → Authentication → Providers once you've both registered.
 
-Since this couldn't be checked during generation, please run:
+### Local Supabase instead of a hosted project
 
 ```bash
-npm run typecheck
-npm run lint
-npm run build
+npx supabase start            # runs Postgres + Auth + PostgREST in Docker
 ```
 
-Fix anything that surfaces — most likely candidates are minor Supabase query typing issues (the
-generated row types are hand-written to match `supabase/migrations/0001_schema.sql`; if you've
-changed the schema, regenerate with `npx supabase gen types typescript`).
+It prints an API URL and keys — put those in `.env.local`. `supabase start` applies the
+migrations and `supabase/seed.sql` automatically; `npx supabase db reset` re-applies them
+from scratch.
 
-## Deployment
+---
 
-Any Next.js host works (Vercel is the path of least resistance):
+## Testing the whole flow
 
-1. Push this repo to GitHub.
-2. Import it in Vercel.
-3. Add the three environment variables from `.env.local` in Vercel's Project Settings →
-   Environment Variables.
-4. Deploy. Point your Supabase project's **Auth → URL Configuration** at your production domain.
+With the app running and a login created:
 
-## Architecture notes & assumptions
+1. **Create a service** — Services → *Add* → name, category (pick `+ New category…` to
+   create one), duration, price → *Add service*.
+2. **Create a staff member** — Staff → *Add* → name, tick the service under *Services this
+   person provides*, set working days and hours → *Add staff member*.
+3. **Set opening hours** — Settings → set each day's hours, untick a day to mark it closed
+   → *Save settings*.
+4. **Create a customer** — Customers → *Add* → name and phone → *Add customer*. Search for
+   them by phone to confirm.
+5. **Book an appointment** — Calendar → tap an empty slot in that staff member's column (or
+   press *New*) → pick the customer, service, time → *Book appointment*. It appears on the
+   grid immediately, positioned by time with the price and status shown.
+6. **Check double-booking** — try booking the same staff member over that slot; it's
+   refused with an explanation.
+7. **Reschedule** — drag the card to another time or another staff column; it saves and
+   confirms with a toast.
+8. **Book as a customer** — open `/book` (a phone works best) → service → staff → date →
+   time → name and phone → *Confirm booking*. You get a reference number.
+9. **Confirm it synced** — back in the admin calendar, the online booking is on the grid
+   with a small globe icon, and the customer now exists under Customers.
 
-- **Multi-business ready, single-salon today.** Every business-owned table carries `business_id`,
-  and Row Level Security (`0002_rls.sql`) enforces that a signed-in user only ever sees their own
-  business's rows via `auth_business_id()`. The public booking page currently books into whichever
-  business row is created first (`/api/public/bootstrap`) — correct for a single salon; swap for a
-  slug-based lookup (`/book/[businessSlug]`) if you add more businesses later.
-- **Public booking never uses the browser's Supabase key.** `/api/public/*` route handlers run
-  server-side with the Supabase **service role** key (`src/lib/supabase/serviceRole.ts`, guarded
-  with `server-only`), so anonymous customers can check availability and create a booking without
-  any public RLS policies on `appointments`/`customers`. This keeps that data otherwise fully
-  private.
-- **Double-booking prevention is two-layered:** an application-level overlap check before every
-  write, plus a Postgres `EXCLUDE` constraint (`0008_overlap_guard.sql`) using `btree_gist`, so even
-  two simultaneous booking requests can't create overlapping appointments for the same staff member.
-- **Availability engine** (`src/lib/booking/availability.ts`) intersects: branch opening hours →
-  staff working hours for that weekday → staff time off → existing appointments (any non-cancelled
-  status) → the selected service's duration. Slots are generated in 15-minute increments; same-day
-  bookings require at least 30 minutes' lead time.
-- **Customer de-duplication by phone**: `customers` has a unique index on `(business_id, phone)`.
-  The booking API looks up by phone first and reuses that customer if found, only creating a new row
-  otherwise — exactly the "connect, don't duplicate" behavior requested.
-- **Appointment → service is 1:1 in the UI** (the appointment form and booking flow both ask for a
-  single service), but the data model (`appointment_services`) supports many-to-one, so
-  multi-service bookings are a UI-only change later, not a schema change.
-- **Currency** is always rendered `KD 15.000` (3 decimals) via `src/lib/utils/currency.ts`.
+---
 
-## Project structure
+## Checks
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm run lint        # next lint
+npm run build       # production build
+```
+
+---
+
+## How it's put together
 
 ```
 src/
   app/
-    (app)/            # authenticated staff app — bottom nav + all internal pages
-    api/public/        # unauthenticated route handlers powering /book
-    book/              # public booking wizard page
-    login/
+    (app)/            Admin area (auth required): dashboard, calendar, customers,
+                      services, staff, settings
+    api/public/       Server routes the public booking page calls (service role only):
+                      bootstrap, availability, book
+    book/             Public booking page
+    login/            Sign in / sign up
   components/
-    booking/           # public booking wizard UI
-    calendar/           # day/week grid, appointment card, appointment form
-    customers/, staff/, services/   # module-specific UI
-    dashboard/, nav/    # dashboard menu, bottom nav, quick add
-    shared/              # BranchProvider, ComingSoon, NoProfileNotice
-    ui/                  # design system primitives (Button, Card, Modal, Toast, ...)
+    calendar/         CalendarView (state + data) · TimeGrid (day/week grid, drag
+                      and drop) · MonthGrid · AppointmentFormModal
+    booking/          BookingWizard — the whole public flow
+    customers/ services/ staff/ settings/ nav/ ui/
   lib/
-    booking/            # server-only availability engine
-    supabase/           # browser/server/service-role clients + middleware
-    types/               # hand-written types mirroring the schema
-    utils/                # currency, date, status, cn helpers
-    validations/          # Zod schemas
+    booking/          Availability engine (opening hours ∩ working hours ∩ time off
+                      ∩ existing bookings)
+    supabase/         Browser, server and service-role clients + shared queries
+    utils/timezone.ts Salon wall-clock ↔ instant conversions
+    validations/      Zod schemas shared by forms
 supabase/
-  migrations/            # run in numeric order
-  seed.sql
+  migrations/         Schema, RLS, views, booking support, guards, grants, auth bootstrap
+  seed.sql            Demo data
 ```
 
-## Roles
+A few decisions worth knowing:
 
-`owner`, `manager`, `receptionist`, `staff` exist as a Postgres enum and on every `profiles` row.
-RLS currently gates by **business**, not yet by **role** — every signed-in team member can read/write
-their business's data. Role-based UI/permission restrictions are architected for (the enum, the
-column) but not yet enforced; add role checks in RLS policies and in the UI as the next layer.
+- **One salon, one clock.** Appointments are stored as `timestamptz`, but opening hours,
+  working hours and the calendar grid are wall-clock. Everything converts through
+  `src/lib/utils/timezone.ts`, so the app behaves identically on a server in UTC and a
+  phone in another timezone.
+- **Double-booking is a database guarantee.** `supabase/migrations/0008_overlap_guard.sql`
+  adds an exclusion constraint: one staff member cannot hold two overlapping,
+  non-cancelled appointments, no matter which client writes them.
+- **The public page never touches the database directly.** It calls three server routes,
+  which are the only place the service-role key is used, and availability is re-checked
+  server-side immediately before a booking is written.
+- **Multi-branch stays in the schema, out of the UI.** Every table carries `business_id`
+  and appointments carry `branch_id`, so a second location is a UI change rather than a
+  migration. Today the app always uses the salon's primary branch.

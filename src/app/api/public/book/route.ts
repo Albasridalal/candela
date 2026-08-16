@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/serviceRole";
 import { publicBookingCustomerSchema } from "@/lib/validations/schemas";
 import { getStaffAvailableSlots } from "@/lib/booking/availability";
+import { salonWallClockToIso } from "@/lib/utils/timezone";
 
 interface BookBody {
   branchId: string;
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const startTime = new Date(`${date}T${time}:00`).toISOString();
+  const startTime = salonWallClockToIso(date, time);
   const endTime = new Date(
     new Date(startTime).getTime() + service.duration_minutes * 60000
   ).toISOString();
@@ -85,22 +86,18 @@ export async function POST(request: NextRequest) {
   let customerId: string;
   const { data: existingCustomer } = await supabase
     .from("customers")
-    .select("id")
+    .select("id, email")
     .eq("business_id", branch.business_id)
     .eq("phone", normalizedPhone)
     .maybeSingle();
 
   if (existingCustomer) {
     customerId = existingCustomer.id;
-    // Fill in blanks (e.g. email) without overwriting existing data.
-    await supabase
-      .from("customers")
-      .update({
-        email: customerInput.email || undefined,
-        full_name: customerInput.full_name || undefined,
-      })
-      .eq("id", customerId)
-      .is("email", null);
+    // Fill in a missing email without overwriting anything the salon already
+    // has on file for this customer.
+    if (customerInput.email && !existingCustomer.email) {
+      await supabase.from("customers").update({ email: customerInput.email }).eq("id", customerId);
+    }
   } else {
     const { data: created, error: createError } = await supabase
       .from("customers")

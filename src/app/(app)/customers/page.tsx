@@ -5,6 +5,8 @@ import { PageHeader, EmptyState } from "@/components/ui/Feedback";
 import { Button } from "@/components/ui/Button";
 import { CustomerListClient } from "@/components/customers/CustomerListClient";
 
+export const dynamic = "force-dynamic";
+
 export default async function CustomersPage() {
   const supabase = await createClient();
   const { data: customers } = await supabase

@@ -24,16 +24,18 @@ export function ServicesClient({
   initialCategories,
   initialServices,
   businessId,
+  autoOpenNew,
 }: {
   initialCategories: ServiceCategory[];
   initialServices: Service[];
   businessId: string;
+  autoOpenNew?: boolean;
 }) {
   const supabase = createClient();
   const { show } = useToast();
-  const [categories] = useState(initialCategories);
+  const [categories, setCategories] = useState(initialCategories);
   const [services, setServices] = useState(initialServices);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(!!autoOpenNew);
   const [editing, setEditing] = useState<Service | undefined>(undefined);
   const [deleting, setDeleting] = useState<Service | undefined>(undefined);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -141,8 +143,10 @@ export function ServicesClient({
           description={services.length === 0 ? "Build your service menu." : undefined}
         />
       ) : (
-        categories.map((cat) => {
-          const catServices = filtered.filter((s) => s.category_id === cat.id);
+        [...categories, { id: "__none", name: "Uncategorised" } as ServiceCategory].map((cat) => {
+          const catServices = filtered.filter((s) =>
+            cat.id === "__none" ? !s.category_id : s.category_id === cat.id
+          );
           if (catServices.length === 0) return null;
           return (
             <div key={cat.id} className="mb-5">
@@ -201,6 +205,9 @@ export function ServicesClient({
         categories={categories}
         businessId={businessId}
         onSaved={upsertLocal}
+        onCategoryCreated={(category) =>
+          setCategories((prev) => [...prev, category].sort((a, b) => a.name.localeCompare(b.name)))
+        }
       />
 
       <ConfirmDialog
@@ -237,6 +244,8 @@ function FilterChip({
   );
 }
 
+const NEW_CATEGORY = "__new";
+
 function ServiceFormModal({
   open,
   onClose,
@@ -244,6 +253,7 @@ function ServiceFormModal({
   categories,
   businessId,
   onSaved,
+  onCategoryCreated,
 }: {
   open: boolean;
   onClose: () => void;
@@ -251,11 +261,15 @@ function ServiceFormModal({
   categories: ServiceCategory[];
   businessId: string;
   onSaved: (s: Service) => void;
+  onCategoryCreated: (category: ServiceCategory) => void;
 }) {
   const { show } = useToast();
   const supabase = createClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [allStaff, setAllStaff] = useState<{ id: string; full_name: string }[]>([]);
+  const [categoryChoice, setCategoryChoice] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   const {
     register,
@@ -268,7 +282,6 @@ function ServiceFormModal({
     resolver: zodResolver(serviceSchema),
     values: {
       name: service?.name ?? "",
-      category_id: service?.category_id ?? categories[0]?.id ?? "",
       description: service?.description ?? "",
       duration_minutes: service?.duration_minutes ?? 30,
       price: service?.price ?? 0,
@@ -281,6 +294,10 @@ function ServiceFormModal({
 
   useEffect(() => {
     if (!open) return;
+    setCategoryChoice(service?.category_id ?? categories[0]?.id ?? NEW_CATEGORY);
+    setNewCategoryName("");
+    setCategoryError(null);
+
     (async () => {
       const { data } = await supabase
         .from("staff")
@@ -311,11 +328,44 @@ function ServiceFormModal({
     setValue("staff_ids", Array.from(set));
   }
 
+  /** Resolves the picked category, creating it first when it's a new name. */
+  async function resolveCategoryId(): Promise<string | null | undefined> {
+    if (categoryChoice !== NEW_CATEGORY) return categoryChoice || null;
+
+    const name = newCategoryName.trim();
+    if (name.length < 2) {
+      setCategoryError("Enter a category name (e.g. Nails, Hair).");
+      return undefined;
+    }
+
+    const { data, error } = await supabase
+      .from("service_categories")
+      .insert({ business_id: businessId, name })
+      .select()
+      .single();
+
+    if (error || !data) {
+      setCategoryError("Couldn't create that category.");
+      return undefined;
+    }
+
+    onCategoryCreated(data as ServiceCategory);
+    return data.id;
+  }
+
   async function onSubmit(values: ServiceFormValues) {
+    setCategoryError(null);
     setIsSubmitting(true);
+
+    const categoryId = await resolveCategoryId();
+    if (categoryId === undefined) {
+      setIsSubmitting(false);
+      return;
+    }
+
     const payload = {
       name: values.name,
-      category_id: values.category_id,
+      category_id: categoryId,
       description: values.description || null,
       duration_minutes: values.duration_minutes,
       price: values.price,
@@ -373,14 +423,23 @@ function ServiceFormModal({
         <FormField label="Service name" error={errors.name?.message}>
           <Input {...register("name")} />
         </FormField>
-        <FormField label="Category" error={errors.category_id?.message}>
-          <Select {...register("category_id")}>
+        <FormField label="Category" error={categoryError ?? undefined}>
+          <Select value={categoryChoice} onChange={(e) => setCategoryChoice(e.target.value)}>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
+            <option value={NEW_CATEGORY}>+ New category…</option>
           </Select>
+          {categoryChoice === NEW_CATEGORY && (
+            <Input
+              className="mt-2"
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="Category name, e.g. Nails"
+            />
+          )}
         </FormField>
         <FormField label="Description" error={errors.description?.message}>
           <Textarea {...register("description")} />

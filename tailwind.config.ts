@@ -23,6 +23,25 @@ const config: Config = {
           800: "var(--color-brand-800)",
           900: "var(--color-brand-900)",
         },
+        // Palette for the public booking page only — soft, warm and feminine,
+        // kept separate so re-theming the admin never changes the customer view.
+        blush: {
+          50: "#fdf6f4",
+          100: "#faeae6",
+          200: "#f3d3cc",
+          300: "#e8b3a8",
+          400: "#d98d7e",
+          500: "#c46c5c",
+          600: "#a95545",
+          700: "#8a4437",
+          800: "#6b352b",
+          900: "#4a251e",
+        },
+        champagne: {
+          50: "#fdfbf7",
+          100: "#f8f2e8",
+          200: "#eee2cd",
+        },
         surface: "var(--color-surface)",
         "surface-subtle": "var(--color-surface-subtle)",
         ink: "var(--color-ink)",
@@ -43,6 +62,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "Georgia", "serif"],
       },
     },
   },

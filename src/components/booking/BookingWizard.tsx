@@ -4,28 +4,45 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Sparkles,
+  CalendarDays,
+  Check,
   ChevronLeft,
   Clock,
-  Check,
   Loader2,
-  CalendarDays,
+  MapPin,
+  Phone,
+  Sparkles,
   User,
-  Copy,
 } from "lucide-react";
-import { format, addDays, isSameDay } from "date-fns";
-import { Button } from "@/components/ui/Button";
-import { FormField, Input, Textarea } from "@/components/ui/Input";
 import { formatCurrency } from "@/lib/utils/currency";
 import { cn } from "@/lib/utils/cn";
+import {
+  addDaysToKey,
+  dayOfWeekForKey,
+  formatDateKeyLong,
+  formatTimeLabel,
+  monthShort,
+  todayInSalon,
+  weekdayShort,
+} from "@/lib/utils/timezone";
 import {
   publicBookingCustomerSchema,
   PublicBookingCustomerValues,
 } from "@/lib/validations/schemas";
 
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const DAYS_VISIBLE = 12;
+const DAYS_AHEAD = 45;
+
 interface BootstrapData {
   business: { id: string; name: string; currency: string };
-  branches: { id: string; name: string }[];
+  branches: {
+    id: string;
+    name: string;
+    address: string | null;
+    phone: string | null;
+    opening_hours: Record<string, { open: string; close: string } | undefined> | null;
+  }[];
   categories: { id: string; name: string; sort_order: number }[];
   services: {
     id: string;
@@ -35,23 +52,41 @@ interface BootstrapData {
     duration_minutes: number;
     price: number;
   }[];
-  staff: { id: string; full_name: string; profile_image_url: string | null; branch_id: string | null }[];
+  staff: { id: string; full_name: string; job_title: string | null; branch_id: string | null }[];
   staffServices: { staff_id: string; service_id: string }[];
 }
 
-type Step = "category" | "service" | "staff" | "date" | "time" | "details" | "confirm" | "done";
+interface Confirmation {
+  reference: string;
+  service: { name: string; price: number; duration_minutes: number };
+  staffName: string;
+  date: string;
+  time: string;
+}
 
-const STEP_ORDER: Step[] = ["category", "service", "staff", "date", "time", "details", "confirm"];
+type Step = "service" | "staff" | "date" | "time" | "details" | "confirm" | "done";
+
+const STEPS: Step[] = ["service", "staff", "date", "time", "details", "confirm"];
+const STEP_TITLES: Record<Step, string> = {
+  service: "Choose your treatment",
+  staff: "Who would you like?",
+  date: "Pick a day",
+  time: "Pick a time",
+  details: "Your details",
+  confirm: "Review your booking",
+  done: "You're booked",
+};
 
 export function BookingWizard() {
   const [data, setData] = useState<BootstrapData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [step, setStep] = useState<Step>("category");
+  const [step, setStep] = useState<Step>("service");
 
-  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState<string | "all">("all");
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [staffChoice, setStaffChoice] = useState<string | null>(null); // staff id or "any"
   const [date, setDate] = useState<string | null>(null);
+  const [showAllDates, setShowAllDates] = useState(false);
   const [time, setTime] = useState<string | null>(null);
   const [resolvedStaffId, setResolvedStaffId] = useState<string | null>(null);
 
@@ -60,83 +95,74 @@ export function BookingWizard() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{
-    reference: string;
-    service: { name: string; price: number; duration_minutes: number };
-    staffName: string;
-    date: string;
-    time: string;
-  } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/public/bootstrap")
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.error) setLoadError(json.error);
-        else setData(json);
-      })
-      .catch(() => setLoadError("Couldn't load booking information. Please try again."));
-  }, []);
-
-  const service = useMemo(() => data?.services.find((s) => s.id === serviceId) ?? null, [data, serviceId]);
-  const branch = data?.branches[0] ?? null;
-
-  const eligibleStaff = useMemo(() => {
-    if (!data || !serviceId) return [];
-    const staffIds = new Set(
-      data.staffServices.filter((ss) => ss.service_id === serviceId).map((ss) => ss.staff_id)
-    );
-    return data.staff.filter((s) => staffIds.has(s.id));
-  }, [data, serviceId]);
-
-  const staffName = useMemo(() => {
-    if (!resolvedStaffId) return "";
-    return data?.staff.find((s) => s.id === resolvedStaffId)?.full_name ?? "";
-  }, [data, resolvedStaffId]);
-
-  // Load slots when we reach the time step.
-  useEffect(() => {
-    if (step !== "time" || !branch || !serviceId || !staffChoice || !date) return;
-    setSlotsLoading(true);
-    setTime(null);
-    const params = new URLSearchParams({
-      branchId: branch.id,
-      serviceId,
-      staffId: staffChoice,
-      date,
-    });
-    fetch(`/api/public/availability?${params.toString()}`)
-      .then((r) => r.json())
-      .then((json) => setSlots(json.slots ?? []))
-      .finally(() => setSlotsLoading(false));
-  }, [step, branch, serviceId, staffChoice, date]);
-
-  function goTo(next: Step) {
-    setStep(next);
-  }
-
-  function goBack() {
-    const idx = STEP_ORDER.indexOf(step);
-    if (idx > 0) setStep(STEP_ORDER[idx - 1]);
-  }
-
-  function selectTime(t: string, staffIdForSlot: string) {
-    setTime(t);
-    setResolvedStaffId(staffIdForSlot);
-    goTo("details");
-  }
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
   const form = useForm<PublicBookingCustomerValues>({
     resolver: zodResolver(publicBookingCustomerSchema),
     defaultValues: { full_name: "", phone: "", email: "", notes: "" },
   });
 
+  useEffect(() => {
+    fetch("/api/public/bootstrap")
+      .then((response) => response.json())
+      .then((json) => {
+        if (json.error) setLoadError(json.error);
+        else setData(json);
+      })
+      .catch(() => setLoadError("We couldn't load the booking page. Please try again."));
+  }, []);
+
+  const branch = data?.branches[0] ?? null;
+  const service = useMemo(
+    () => data?.services.find((s) => s.id === serviceId) ?? null,
+    [data, serviceId]
+  );
+
+  const eligibleStaff = useMemo(() => {
+    if (!data || !serviceId) return [];
+    const ids = new Set(
+      data.staffServices.filter((link) => link.service_id === serviceId).map((l) => l.staff_id)
+    );
+    return data.staff.filter((member) => ids.has(member.id));
+  }, [data, serviceId]);
+
+  const staffName = useMemo(
+    () => data?.staff.find((s) => s.id === resolvedStaffId)?.full_name ?? "",
+    [data, resolvedStaffId]
+  );
+
+  /** Days the salon is open, for the date picker. */
+  const openDays = useMemo(() => {
+    const today = todayInSalon();
+    return Array.from({ length: DAYS_AHEAD }, (_, i) => addDaysToKey(today, i)).filter((key) => {
+      const hours = branch?.opening_hours?.[DAY_KEYS[dayOfWeekForKey(key)]];
+      return !!hours;
+    });
+  }, [branch]);
+
+  useEffect(() => {
+    if (step !== "time" || !branch || !serviceId || !staffChoice || !date) return;
+    setSlotsLoading(true);
+    setTime(null);
+    const params = new URLSearchParams({ branchId: branch.id, serviceId, staffId: staffChoice, date });
+    fetch(`/api/public/availability?${params.toString()}`)
+      .then((response) => response.json())
+      .then((json) => setSlots(json.slots ?? []))
+      .catch(() => setSlots([]))
+      .finally(() => setSlotsLoading(false));
+  }, [step, branch, serviceId, staffChoice, date]);
+
+  function goBack() {
+    const index = STEPS.indexOf(step);
+    if (index > 0) setStep(STEPS[index - 1]);
+  }
+
   async function submitBooking(customer: PublicBookingCustomerValues) {
     if (!branch || !service || !resolvedStaffId || !date || !time) return;
     setSubmitting(true);
     setSubmitError(null);
 
-    const res = await fetch("/api/public/book", {
+    const response = await fetch("/api/public/book", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -148,173 +174,231 @@ export function BookingWizard() {
         customer,
       }),
     });
-    const json = await res.json();
+    const json = await response.json();
     setSubmitting(false);
 
-    if (!res.ok) {
+    if (!response.ok) {
       setSubmitError(json.error ?? "Something went wrong. Please try again.");
-      if (res.status === 409) {
-        // slot taken — bounce back to time selection with a refreshed list
-        goTo("time");
-      }
+      if (response.status === 409) setStep("time");
       return;
     }
 
-    setConfirmation(json);
-    goTo("done");
+    setConfirmation(json as Confirmation);
+    setStep("done");
   }
 
-  if (loadError) {
-    return <CenteredMessage title="Booking unavailable" description={loadError} />;
-  }
-  if (!data) {
-    return <CenteredMessage title="Loading…" icon={Loader2} spin />;
-  }
+  if (loadError) return <CenteredMessage title="Booking unavailable" description={loadError} />;
+  if (!data) return <CenteredMessage title="Just a moment…" loading />;
+
+  const visibleServices =
+    categoryId === "all"
+      ? data.services
+      : data.services.filter((s) => s.category_id === categoryId);
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pb-10 pt-8">
-      <header className="mb-6 flex items-center gap-3">
-        {step !== "category" && step !== "done" && (
-          <button
-            onClick={goBack}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface"
-            aria-label="Back"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        )}
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-brand-600">
-            {data.business.name}
-          </p>
-          <h1 className="text-lg font-semibold text-ink">Book an appointment</h1>
-        </div>
-      </header>
-
-      {step !== "done" && <StepProgress step={step} />}
-
-      {step === "category" && (
-        <StepList
-          title="What are you looking for?"
-          items={data.categories.map((c) => ({ id: c.id, label: c.name }))}
-          onSelect={(id) => {
-            setCategoryId(id);
-            goTo("service");
-          }}
-        />
-      )}
-
-      {step === "service" && (
-        <div>
-          <h2 className="mb-3 text-base font-medium text-ink">Select a service</h2>
-          <div className="space-y-2">
-            {data.services
-              .filter((s) => s.category_id === categoryId)
-              .map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => {
-                    setServiceId(s.id);
-                    setStaffChoice(null);
-                    goTo("staff");
-                  }}
-                  className="flex w-full items-center justify-between gap-3 rounded-card border border-border bg-surface p-4 text-left shadow-card active:bg-surface-subtle"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink">{s.name}</p>
-                    {s.description && (
-                      <p className="mt-0.5 truncate text-xs text-ink-muted">{s.description}</p>
-                    )}
-                    <p className="mt-1 flex items-center gap-1 text-xs text-ink-muted">
-                      <Clock className="h-3 w-3" /> {s.duration_minutes} min
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-sm font-semibold text-brand-700">
-                    {formatCurrency(s.price)}
-                  </span>
-                </button>
-              ))}
+    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 pb-16 pt-8">
+      <header className="mb-7">
+        <div className="flex items-center gap-3">
+          {step !== "service" && step !== "done" && (
+            <button
+              onClick={goBack}
+              aria-label="Back"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-blush-200 bg-white/70 text-blush-700 transition-colors active:bg-blush-100"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-medium uppercase tracking-[0.2em] text-blush-500">
+              {data.business.name}
+            </p>
+            <h1 className="font-display text-2xl leading-tight text-blush-900">
+              {STEP_TITLES[step]}
+            </h1>
           </div>
         </div>
-      )}
 
-      {step === "staff" && (
+        {step !== "done" && (
+          <div className="mt-5 flex gap-1.5">
+            {STEPS.map((s, i) => (
+              <span
+                key={s}
+                className={cn(
+                  "h-[3px] flex-1 rounded-full transition-colors",
+                  i <= STEPS.indexOf(step) ? "bg-blush-400" : "bg-blush-100"
+                )}
+              />
+            ))}
+          </div>
+        )}
+      </header>
+
+      {/* Service ---------------------------------------------------------- */}
+      {step === "service" && (
         <div>
-          <h2 className="mb-3 text-base font-medium text-ink">Choose your staff member</h2>
-          <div className="space-y-2">
-            <button
-              onClick={() => {
-                setStaffChoice("any");
-                goTo("date");
-              }}
-              className="flex w-full items-center gap-3 rounded-card border border-border bg-surface p-4 text-left shadow-card active:bg-surface-subtle"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-50">
-                <Sparkles className="h-5 w-5 text-brand-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-ink">Any available staff</p>
-                <p className="text-xs text-ink-muted">We&apos;ll match you with the first opening</p>
-              </div>
-            </button>
-            {eligibleStaff.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => {
-                  setStaffChoice(s.id);
-                  goTo("date");
-                }}
-                className="flex w-full items-center gap-3 rounded-card border border-border bg-surface p-4 text-left shadow-card active:bg-surface-subtle"
+          <div className="mb-4 flex gap-2 overflow-x-auto no-scrollbar pb-1">
+            <Chip active={categoryId === "all"} onClick={() => setCategoryId("all")}>
+              All
+            </Chip>
+            {data.categories.map((category) => (
+              <Chip
+                key={category.id}
+                active={categoryId === category.id}
+                onClick={() => setCategoryId(category.id)}
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-700">
-                  {s.full_name.slice(0, 1).toUpperCase()}
-                </div>
-                <p className="text-sm font-medium text-ink">{s.full_name}</p>
+                {category.name}
+              </Chip>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {visibleServices.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setServiceId(item.id);
+                  setStaffChoice(null);
+                  setStep("staff");
+                }}
+                className="flex w-full items-center justify-between gap-4 rounded-3xl border border-blush-100 bg-white p-5 text-left shadow-[0_2px_14px_-8px_rgba(138,68,55,0.35)] transition-all active:scale-[0.99] active:border-blush-300"
+              >
+                <span className="min-w-0">
+                  <span className="block font-display text-lg leading-snug text-blush-900">
+                    {item.name}
+                  </span>
+                  {item.description && (
+                    <span className="mt-0.5 block text-sm leading-snug text-blush-700/70">
+                      {item.description}
+                    </span>
+                  )}
+                  <span className="mt-2 inline-flex items-center gap-1.5 text-xs text-blush-600">
+                    <Clock className="h-3.5 w-3.5" /> {item.duration_minutes} min
+                  </span>
+                </span>
+                <span className="shrink-0 font-display text-lg text-blush-800">
+                  {formatCurrency(item.price)}
+                </span>
               </button>
             ))}
-            {eligibleStaff.length === 0 && (
-              <p className="text-sm text-ink-muted">
-                No staff are currently assigned to this service — you can still request &quot;Any
-                available staff&quot; above.
+            {visibleServices.length === 0 && (
+              <p className="rounded-3xl border border-dashed border-blush-200 p-8 text-center text-sm text-blush-700/70">
+                No treatments in this category yet.
               </p>
             )}
           </div>
         </div>
       )}
 
-      {step === "date" && (
-        <DateStep
-          onSelect={(d) => {
-            setDate(d);
-            goTo("time");
-          }}
-        />
+      {/* Staff ------------------------------------------------------------ */}
+      {step === "staff" && (
+        <div className="space-y-3">
+          <SelectCard
+            title="Any available"
+            subtitle="We'll match you with the earliest opening"
+            initials="✨"
+            onClick={() => {
+              setStaffChoice("any");
+              setStep("date");
+            }}
+          />
+          {eligibleStaff.map((member) => (
+            <SelectCard
+              key={member.id}
+              title={member.full_name}
+              subtitle={member.job_title ?? undefined}
+              initials={member.full_name.slice(0, 1).toUpperCase()}
+              onClick={() => {
+                setStaffChoice(member.id);
+                setStep("date");
+              }}
+            />
+          ))}
+          {eligibleStaff.length === 0 && (
+            <p className="rounded-3xl border border-dashed border-blush-200 p-6 text-center text-sm text-blush-700/70">
+              No one is assigned to this treatment yet — choose &ldquo;Any available&rdquo; and the
+              salon will confirm.
+            </p>
+          )}
+        </div>
       )}
 
+      {/* Date ------------------------------------------------------------- */}
+      {step === "date" && (
+        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+          {openDays.slice(0, showAllDates ? openDays.length : DAYS_VISIBLE).map((key) => {
+            const day = Number(key.slice(8));
+            const isToday = key === todayInSalon();
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  setDate(key);
+                  setStep("time");
+                }}
+                className={cn(
+                  "flex flex-col items-center rounded-2xl border bg-white py-3 transition-all active:scale-[0.98]",
+                  isToday ? "border-blush-300" : "border-blush-100"
+                )}
+              >
+                <span className="text-[11px] uppercase tracking-wide text-blush-500">
+                  {weekdayShort(key)}
+                </span>
+                <span className="font-display text-xl text-blush-900">{day}</span>
+                <span className="text-[11px] text-blush-500">{monthShort(key)}</span>
+              </button>
+            );
+          })}
+          {openDays.length === 0 && (
+            <p className="col-span-full rounded-3xl border border-dashed border-blush-200 p-6 text-center text-sm text-blush-700/70">
+              The salon hasn&apos;t published its opening hours yet.
+            </p>
+          )}
+          {!showAllDates && openDays.length > DAYS_VISIBLE && (
+            <button
+              onClick={() => setShowAllDates(true)}
+              className="col-span-full mt-1 rounded-full border border-blush-200 bg-white py-3 text-sm font-medium text-blush-700"
+            >
+              Show more dates
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Time ------------------------------------------------------------- */}
       {step === "time" && (
         <div>
-          <h2 className="mb-1 text-base font-medium text-ink">Choose a time</h2>
-          <p className="mb-3 text-xs text-ink-muted">
-            {date && format(new Date(`${date}T00:00:00`), "EEEE, MMMM d")}
-          </p>
+          <p className="mb-4 text-sm text-blush-700/80">{date && formatDateKeyLong(date)}</p>
           {slotsLoading ? (
-            <p className="py-10 text-center text-sm text-ink-muted">Checking availability…</p>
+            <div className="flex flex-col items-center gap-2 py-14 text-blush-600">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <p className="text-sm">Finding available times…</p>
+            </div>
           ) : slots.length === 0 ? (
-            <div className="rounded-card border border-dashed border-border p-6 text-center">
-              <p className="text-sm text-ink">No times available on this date.</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => goTo("date")}>
-                Choose another date
-              </Button>
+            <div className="rounded-3xl border border-dashed border-blush-200 p-8 text-center">
+              <p className="font-display text-lg text-blush-900">Fully booked</p>
+              <p className="mt-1 text-sm text-blush-700/70">
+                There are no openings left on this day.
+              </p>
+              <button
+                onClick={() => setStep("date")}
+                className="mt-4 rounded-full bg-blush-600 px-5 py-2.5 text-sm font-medium text-white"
+              >
+                Choose another day
+              </button>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-2">
-              {slots.map((s) => (
+            <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+              {slots.map((slot) => (
                 <button
-                  key={s.time + s.staffId}
-                  onClick={() => selectTime(s.time, s.staffId)}
-                  className="rounded-xl border border-border bg-surface py-2.5 text-sm font-medium text-ink shadow-subtle active:bg-brand-50 active:border-brand-400"
+                  key={slot.time + slot.staffId}
+                  onClick={() => {
+                    setTime(slot.time);
+                    setResolvedStaffId(slot.staffId);
+                    setStep("details");
+                  }}
+                  className="rounded-2xl border border-blush-100 bg-white py-3 text-sm font-medium text-blush-900 transition-all active:scale-[0.98] active:border-blush-400 active:bg-blush-50"
                 >
-                  {format(new Date(`2000-01-01T${s.time}:00`), "h:mm a")}
+                  {formatTimeLabel(slot.time)}
                 </button>
               ))}
             </div>
@@ -322,148 +406,230 @@ export function BookingWizard() {
         </div>
       )}
 
+      {/* Details ---------------------------------------------------------- */}
       {step === "details" && (
-        <form onSubmit={form.handleSubmit(() => goTo("confirm"))} className="space-y-4">
-          <h2 className="text-base font-medium text-ink">Your information</h2>
-          <FormField label="Full name" error={form.formState.errors.full_name?.message}>
-            <Input {...form.register("full_name")} placeholder="Your name" />
-          </FormField>
-          <FormField label="Mobile number" error={form.formState.errors.phone?.message}>
-            <Input {...form.register("phone")} placeholder="+965 9000 0000" inputMode="tel" />
-          </FormField>
-          <FormField label="Email (optional)" error={form.formState.errors.email?.message}>
-            <Input type="email" {...form.register("email")} placeholder="you@example.com" />
-          </FormField>
-          <FormField label="Notes (optional)" error={form.formState.errors.notes?.message}>
-            <Textarea {...form.register("notes")} placeholder="Anything we should know?" />
-          </FormField>
-          <Button type="submit" className="w-full">
-            Continue
-          </Button>
+        <form onSubmit={form.handleSubmit(() => setStep("confirm"))} className="space-y-4">
+          <Field label="Full name" error={form.formState.errors.full_name?.message}>
+            <input
+              {...form.register("full_name")}
+              placeholder="Your name"
+              autoComplete="name"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Mobile number" error={form.formState.errors.phone?.message}>
+            <input
+              {...form.register("phone")}
+              placeholder="+965 9000 0000"
+              inputMode="tel"
+              autoComplete="tel"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Email (optional)" error={form.formState.errors.email?.message}>
+            <input
+              {...form.register("email")}
+              type="email"
+              placeholder="you@example.com"
+              autoComplete="email"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Anything we should know? (optional)" error={form.formState.errors.notes?.message}>
+            <textarea
+              {...form.register("notes")}
+              rows={3}
+              placeholder="Allergies, preferences…"
+              className={cn(inputClass, "h-auto py-3")}
+            />
+          </Field>
+          <PrimaryButton type="submit">Continue</PrimaryButton>
         </form>
       )}
 
-      {step === "confirm" && service && branch && date && time && (
+      {/* Confirm ---------------------------------------------------------- */}
+      {step === "confirm" && service && date && time && (
         <div>
-          <h2 className="mb-3 text-base font-medium text-ink">Confirm your booking</h2>
-          <div className="space-y-3 rounded-card border border-border bg-surface p-4 shadow-card">
-            <SummaryRow icon={Sparkles} label="Service" value={service.name} />
-            <SummaryRow icon={User} label="Staff" value={staffName || "Any available"} />
+          <div className="space-y-4 rounded-3xl border border-blush-100 bg-white p-5 shadow-[0_2px_14px_-8px_rgba(138,68,55,0.35)]">
+            <SummaryRow icon={Sparkles} label="Treatment" value={service.name} />
+            <SummaryRow icon={User} label="With" value={staffName || "Any available"} />
             <SummaryRow
               icon={CalendarDays}
-              label="Date & time"
-              value={`${format(new Date(`${date}T00:00:00`), "EEE, MMM d")} at ${format(
-                new Date(`2000-01-01T${time}:00`),
-                "h:mm a"
-              )}`}
+              label="When"
+              value={`${formatDateKeyLong(date)} at ${formatTimeLabel(time)}`}
             />
-            <SummaryRow icon={Clock} label="Duration" value={`${service.duration_minutes} min`} />
-            <div className="flex items-center justify-between border-t border-border pt-3">
-              <span className="text-sm font-medium text-ink">Total</span>
-              <span className="text-base font-semibold text-brand-700">
+            <SummaryRow icon={Clock} label="Duration" value={`${service.duration_minutes} minutes`} />
+            <SummaryRow icon={Phone} label="Contact" value={form.getValues("phone")} />
+            <div className="flex items-center justify-between border-t border-blush-100 pt-4">
+              <span className="text-sm text-blush-700">Total</span>
+              <span className="font-display text-xl text-blush-900">
                 {formatCurrency(service.price)}
               </span>
             </div>
           </div>
 
           {submitError && (
-            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-danger">{submitError}</p>
+            <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</p>
           )}
 
-          <Button
-            className="mt-4 w-full"
-            isLoading={submitting}
+          <PrimaryButton
+            className="mt-5"
+            loading={submitting}
             onClick={() => submitBooking(form.getValues())}
           >
             Confirm booking
-          </Button>
-          <p className="mt-2 text-center text-xs text-ink-muted">
-            No payment required now — you&apos;ll pay at the salon.
+          </PrimaryButton>
+          <p className="mt-3 text-center text-xs text-blush-700/70">
+            No payment needed now — you&apos;ll settle at the salon.
           </p>
         </div>
       )}
 
-      {step === "done" && confirmation && <ConfirmationScreen confirmation={confirmation} />}
+      {/* Done ------------------------------------------------------------- */}
+      {step === "done" && confirmation && (
+        <div className="flex flex-col items-center text-center">
+          <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-blush-100">
+            <Check className="h-9 w-9 text-blush-600" />
+          </div>
+          <h2 className="font-display text-2xl text-blush-900">See you soon</h2>
+          <p className="mt-1 text-sm text-blush-700/80">
+            Your appointment is in the salon&apos;s diary.
+          </p>
+
+          <p className="mt-5 rounded-full border border-blush-200 bg-white px-5 py-2 font-mono text-sm font-semibold tracking-wider text-blush-800">
+            {confirmation.reference}
+          </p>
+
+          <div className="mt-7 w-full space-y-4 rounded-3xl border border-blush-100 bg-white p-5 text-left">
+            <SummaryRow icon={Sparkles} label="Treatment" value={confirmation.service.name} />
+            <SummaryRow icon={User} label="With" value={confirmation.staffName} />
+            <SummaryRow
+              icon={CalendarDays}
+              label="When"
+              value={`${formatDateKeyLong(confirmation.date)} at ${formatTimeLabel(confirmation.time)}`}
+            />
+            {branch?.address && <SummaryRow icon={MapPin} label="Where" value={branch.address} />}
+            <div className="flex items-center justify-between border-t border-blush-100 pt-4">
+              <span className="text-sm text-blush-700">Total</span>
+              <span className="font-display text-xl text-blush-900">
+                {formatCurrency(confirmation.service.price)}
+              </span>
+            </div>
+          </div>
+
+          {branch?.phone && (
+            <a
+              href={`tel:${branch.phone.replace(/\s/g, "")}`}
+              className="mt-5 text-sm font-medium text-blush-700 underline underline-offset-4"
+            >
+              Need to change it? Call {branch.phone}
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function StepProgress({ step }: { step: Step }) {
-  const idx = STEP_ORDER.indexOf(step);
-  return (
-    <div className="mb-6 flex gap-1">
-      {STEP_ORDER.map((s, i) => (
-        <div
-          key={s}
-          className={cn("h-1 flex-1 rounded-full", i <= idx ? "bg-brand-500" : "bg-surface-subtle border border-border")}
-        />
-      ))}
-    </div>
-  );
-}
+const inputClass =
+  "h-12 w-full rounded-2xl border border-blush-100 bg-white px-4 text-[15px] text-blush-900 placeholder:text-blush-300 focus:border-blush-400 focus:outline-none focus:ring-2 focus:ring-blush-200";
 
-function StepList({
-  title,
-  items,
-  onSelect,
+function Field({
+  label,
+  error,
+  children,
 }: {
-  title: string;
-  items: { id: string; label: string }[];
-  onSelect: (id: string) => void;
+  label: string;
+  error?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div>
-      <h2 className="mb-3 text-base font-medium text-ink">{title}</h2>
-      <div className="grid grid-cols-2 gap-3">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onSelect(item.id)}
-            className="rounded-card border border-border bg-surface p-4 text-left shadow-card active:bg-brand-50 active:border-brand-400"
-          >
-            <p className="text-sm font-medium text-ink">{item.label}</p>
-          </button>
-        ))}
-      </div>
-    </div>
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-blush-800">{label}</span>
+      {children}
+      {error && <span className="mt-1 block text-xs text-red-600">{error}</span>}
+    </label>
   );
 }
 
-function DateStep({ onSelect }: { onSelect: (date: string) => void }) {
-  const today = new Date();
-  const quickDays = Array.from({ length: 10 }, (_, i) => addDays(today, i));
-  const [customDate, setCustomDate] = useState("");
-
+function PrimaryButton({
+  children,
+  onClick,
+  type = "button",
+  loading,
+  className,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  type?: "button" | "submit";
+  loading?: boolean;
+  className?: string;
+}) {
   return (
-    <div>
-      <h2 className="mb-3 text-base font-medium text-ink">Choose a date</h2>
-      <div className="mb-4 flex gap-2 overflow-x-auto no-scrollbar pb-1">
-        {quickDays.map((d) => (
-          <button
-            key={d.toISOString()}
-            onClick={() => onSelect(format(d, "yyyy-MM-dd"))}
-            className={cn(
-              "flex shrink-0 flex-col items-center rounded-xl border border-border bg-surface px-3 py-2.5",
-              isSameDay(d, today) && "border-brand-400"
-            )}
-          >
-            <span className="text-[11px] text-ink-muted">{format(d, "EEE")}</span>
-            <span className="text-sm font-semibold text-ink">{format(d, "d")}</span>
-          </button>
-        ))}
-      </div>
-      <FormField label="Or pick a specific date">
-        <Input
-          type="date"
-          min={format(today, "yyyy-MM-dd")}
-          value={customDate}
-          onChange={(e) => setCustomDate(e.target.value)}
-        />
-      </FormField>
-      <Button className="mt-3 w-full" disabled={!customDate} onClick={() => onSelect(customDate)}>
-        Continue
-      </Button>
-    </div>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={loading}
+      className={cn(
+        "flex w-full items-center justify-center gap-2 rounded-full bg-blush-600 py-3.5 text-sm font-medium tracking-wide text-white transition-all",
+        "active:scale-[0.99] active:bg-blush-700 disabled:opacity-60",
+        className
+      )}
+    >
+      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      {children}
+    </button>
+  );
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-xs font-medium transition-colors",
+        active
+          ? "border-blush-400 bg-blush-100 text-blush-800"
+          : "border-blush-100 bg-white text-blush-600"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SelectCard({
+  title,
+  subtitle,
+  initials,
+  onClick,
+}: {
+  title: string;
+  subtitle?: string;
+  initials: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-4 rounded-3xl border border-blush-100 bg-white p-4 text-left shadow-[0_2px_14px_-8px_rgba(138,68,55,0.35)] transition-all active:scale-[0.99] active:border-blush-300"
+    >
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blush-50 font-display text-lg text-blush-700">
+        {initials}
+      </span>
+      <span className="min-w-0">
+        <span className="block font-display text-lg text-blush-900">{title}</span>
+        {subtitle && <span className="block text-xs text-blush-700/70">{subtitle}</span>}
+      </span>
+    </button>
   );
 }
 
@@ -477,74 +643,12 @@ function SummaryRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <Icon className="h-4 w-4 shrink-0 text-brand-600" />
+    <div className="flex items-start gap-3">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-blush-500" />
       <div className="min-w-0">
-        <p className="text-xs text-ink-muted">{label}</p>
-        <p className="truncate text-sm font-medium text-ink">{value}</p>
+        <p className="text-xs uppercase tracking-wide text-blush-500">{label}</p>
+        <p className="text-[15px] text-blush-900">{value}</p>
       </div>
-    </div>
-  );
-}
-
-function ConfirmationScreen({
-  confirmation,
-}: {
-  confirmation: {
-    reference: string;
-    service: { name: string; price: number; duration_minutes: number };
-    staffName: string;
-    date: string;
-    time: string;
-  };
-}) {
-  const [copied, setCopied] = useState(false);
-
-  function copyReference() {
-    navigator.clipboard?.writeText(confirmation.reference);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <div className="flex flex-col items-center pt-8 text-center">
-      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-50">
-        <Check className="h-8 w-8 text-brand-600" />
-      </div>
-      <h2 className="text-lg font-semibold text-ink">Booking confirmed</h2>
-      <p className="mt-1 text-sm text-ink-muted">We look forward to seeing you.</p>
-
-      <button
-        onClick={copyReference}
-        className="mt-5 flex items-center gap-2 rounded-pill border border-border bg-surface px-4 py-2"
-      >
-        <span className="text-sm font-mono font-semibold text-ink">{confirmation.reference}</span>
-        <Copy className="h-3.5 w-3.5 text-ink-muted" />
-      </button>
-      {copied && <p className="mt-1 text-xs text-success">Copied</p>}
-
-      <div className="mt-6 w-full space-y-3 rounded-card border border-border bg-surface p-4 text-left shadow-card">
-        <SummaryRow icon={Sparkles} label="Service" value={confirmation.service.name} />
-        <SummaryRow icon={User} label="Staff" value={confirmation.staffName} />
-        <SummaryRow
-          icon={CalendarDays}
-          label="Date & time"
-          value={`${format(new Date(`${confirmation.date}T00:00:00`), "EEE, MMM d")} at ${format(
-            new Date(`2000-01-01T${confirmation.time}:00`),
-            "h:mm a"
-          )}`}
-        />
-        <div className="flex items-center justify-between border-t border-border pt-3">
-          <span className="text-sm font-medium text-ink">Total</span>
-          <span className="text-base font-semibold text-brand-700">
-            {formatCurrency(confirmation.service.price)}
-          </span>
-        </div>
-      </div>
-
-      <p className="mt-4 text-xs text-ink-muted">
-        Keep your reference number handy in case you need to reach the salon about this booking.
-      </p>
     </div>
   );
 }
@@ -552,19 +656,17 @@ function ConfirmationScreen({
 function CenteredMessage({
   title,
   description,
-  icon: Icon,
-  spin,
+  loading,
 }: {
   title: string;
   description?: string;
-  icon?: typeof Loader2;
-  spin?: boolean;
+  loading?: boolean;
 }) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-2 px-6 text-center">
-      {Icon && <Icon className={cn("h-6 w-6 text-brand-600", spin && "animate-spin")} />}
-      <p className="font-medium text-ink">{title}</p>
-      {description && <p className="text-sm text-ink-muted">{description}</p>}
+      {loading && <Loader2 className="h-6 w-6 animate-spin text-blush-500" />}
+      <p className="font-display text-xl text-blush-900">{title}</p>
+      {description && <p className="max-w-xs text-sm text-blush-700/70">{description}</p>}
     </div>
   );
 }

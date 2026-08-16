@@ -1,27 +1,41 @@
-import { addMinutes, format, parseISO } from "date-fns";
+import {
+  formatDateKey,
+  formatInstantTime,
+  salonDateKey,
+  salonWallClockToIso,
+  toSalonWallClock,
+} from "./timezone";
 
+/** Clock time of an appointment, in the salon's timezone: "2:30 PM". */
 export function formatTime(iso: string): string {
-  return format(parseISO(iso), "h:mm a");
+  return formatInstantTime(iso);
 }
 
-export function formatDateLabel(iso: string): string {
-  return format(parseISO(iso), "EEE, MMM d");
+/**
+ * "Sat, 14 Mar" — accepts either a full timestamp or a plain yyyy-MM-dd date
+ * (birthdays, time-off ranges), which must not be shifted by a timezone.
+ */
+export function formatDateLabel(value: string): string {
+  const dateKey = value.length <= 10 ? value : toSalonWallClock(value).date;
+  return formatDateKey(dateKey);
 }
 
+/** yyyy-MM-dd for a JS Date, read on the salon's clock. */
 export function formatDateInput(date: Date): string {
-  return format(date, "yyyy-MM-dd");
+  return salonDateKey(date);
 }
 
 /** Appointment end time is always derived from service duration, never typed. */
 export function computeEndTime(startIso: string, durationMinutes: number): string {
-  return addMinutes(parseISO(startIso), durationMinutes).toISOString();
+  return new Date(new Date(startIso).getTime() + durationMinutes * 60_000).toISOString();
 }
 
+/** Salon wall-clock date + time ("2026-03-14", "14:30") -> exact instant. */
 export function combineDateAndTime(dateStr: string, timeStr: string): string {
-  return new Date(`${dateStr}T${timeStr}:00`).toISOString();
+  return salonWallClockToIso(dateStr, timeStr);
 }
 
-/** True if [aStart,aEnd) overlaps [bStart,bEnd) — used for the same-employee overlap guard. */
+/** True if [aStart,aEnd) overlaps [bStart,bEnd) — used for the double-booking guard. */
 export function rangesOverlap(
   aStart: string,
   aEnd: string,
@@ -29,4 +43,9 @@ export function rangesOverlap(
   bEnd: string
 ): boolean {
   return new Date(aStart) < new Date(bEnd) && new Date(bStart) < new Date(aEnd);
+}
+
+/** Minutes between two instants. */
+export function durationMinutesBetween(startIso: string, endIso: string): number {
+  return Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60_000);
 }

@@ -6,10 +6,12 @@ export function NoProfileNotice() {
       <AlertTriangle className="h-8 w-8 text-warning" />
       <h1 className="text-lg font-semibold text-ink">Account not linked yet</h1>
       <p className="max-w-sm text-sm text-ink-muted">
-        You&apos;re signed in, but this login isn&apos;t linked to a business yet. Run the
-        &quot;LINK YOUR LOGIN&quot; snippet at the bottom of{" "}
-        <code className="rounded bg-surface px-1 py-0.5 text-xs">supabase/seed.sql</code> in the
-        Supabase SQL editor, then refresh.
+        You&apos;re signed in, but this login isn&apos;t attached to the salon. Signing out and back
+        in usually fixes it — the database links new logins automatically (see
+        <code className="mx-1 rounded bg-surface px-1 py-0.5 text-xs">
+          supabase/migrations/0010_auth_bootstrap.sql
+        </code>
+        ). If it keeps happening, make sure that migration has been applied.
       </p>
     </div>
   );

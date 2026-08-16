@@ -1,319 +1,462 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { addDays, format, isSameDay, parseISO, startOfWeek } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useBranch } from "@/components/shared/BranchProvider";
-import { AppointmentCard } from "./AppointmentCard";
-import { AppointmentFormModal } from "./AppointmentFormModal";
 import { Button } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Select";
 import { EmptyState } from "@/components/ui/Feedback";
-import { AppointmentWithDetails } from "@/lib/types";
-import { Branch, Staff } from "@/lib/types/database.types";
-import { formatDateInput, formatTime } from "@/lib/utils/date";
+import { useToast } from "@/components/ui/Toast";
+import { TimeGrid, GridColumn, MoveTarget } from "./TimeGrid";
+import { MonthGrid, monthGridStart } from "./MonthGrid";
+import { AppointmentFormModal, AppointmentSlot } from "./AppointmentFormModal";
+import {
+  APPOINTMENT_SELECT,
+  AppointmentWithDetails,
+  mapAppointmentRow,
+} from "@/lib/types";
+import {
+  Branch,
+  Customer,
+  OpeningHours,
+  Service,
+  Staff,
+  StaffWorkingHours,
+} from "@/lib/types/database.types";
+import { combineDateAndTime } from "@/lib/utils/date";
+import {
+  addDaysToKey,
+  dayOfWeekForKey,
+  formatDateKey,
+  formatDateKeyLong,
+  formatMonthLabel,
+  minutesToTime,
+  salonWallClockToIso,
+  monthShort,
+  timeToMinutes,
+  toSalonWallClock,
+  todayInSalon,
+  weekdayShort,
+} from "@/lib/utils/timezone";
 import { cn } from "@/lib/utils/cn";
 
-const DAY_START_HOUR = 9;
-const DAY_END_HOUR = 21;
-const HOUR_HEIGHT = 64; // px per hour in day view
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+const DEFAULT_OPEN_MINUTES = 9 * 60;
+const DEFAULT_CLOSE_MINUTES = 21 * 60;
+
+type View = "day" | "week" | "month";
 
 export function CalendarView({
-  branches,
+  branch,
+  businessId,
   autoOpenNew,
 }: {
-  branches: Branch[];
-  autoOpenNew: boolean;
+  branch: Branch | null;
+  businessId: string;
+  autoOpenNew?: boolean;
 }) {
   const supabase = createClient();
-  const { selectedBranch } = useBranch();
+  const { show } = useToast();
 
-  const [view, setView] = useState<"day" | "week">("day");
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setView] = useState<View>("day");
+  const [dateKey, setDateKey] = useState(todayInSalon());
+  const [staffFilter, setStaffFilter] = useState<string>("all");
+
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [staffServices, setStaffServices] = useState<{ staff_id: string; service_id: string }[]>([]);
+  const [workingHours, setWorkingHours] = useState<StaffWorkingHours[]>([]);
   const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
+
   const [isLoading, setIsLoading] = useState(true);
-  const [formOpen, setFormOpen] = useState(autoOpenNew);
-  const [editingId, setEditingId] = useState<string | undefined>(undefined);
+  const hasLoadedOnce = useRef(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<AppointmentWithDetails | undefined>();
+  const [slot, setSlot] = useState<AppointmentSlot | undefined>();
 
-  const rangeStart = view === "day" ? currentDate : startOfWeek(currentDate);
-  const rangeEnd = view === "day" ? currentDate : addDays(rangeStart, 6);
+  const range = useMemo(() => {
+    if (view === "day") return { from: dateKey, to: dateKey };
+    if (view === "week") {
+      const from = addDaysToKey(dateKey, -dayOfWeekForKey(dateKey));
+      return { from, to: addDaysToKey(from, 6) };
+    }
+    const from = monthGridStart(dateKey);
+    return { from, to: addDaysToKey(from, 41) };
+  }, [view, dateKey]);
 
-  const loadData = useCallback(async () => {
-    if (!selectedBranch) return;
-    setIsLoading(true);
+  // Reference data — staff, services, customers — changes rarely, so it loads
+  // once and is shared with the appointment form.
+  const loadReferenceData = useCallback(async () => {
+    if (!branch) return;
+    const [{ data: staffRows }, { data: serviceRows }, { data: customerRows }, { data: links }, { data: hours }] =
+      await Promise.all([
+        supabase
+          .from("staff")
+          .select("*")
+          .eq("employment_status", "active")
+          .order("full_name"),
+        supabase.from("services").select("*").eq("is_active", true).order("name"),
+        supabase.from("customers").select("*").order("full_name"),
+        supabase.from("staff_services").select("staff_id, service_id"),
+        supabase.from("staff_working_hours").select("*"),
+      ]);
 
-    const { data: staffRows } = await supabase
-      .from("staff")
-      .select("*")
-      .eq("branch_id", selectedBranch.id)
-      .eq("employment_status", "active")
-      .order("full_name");
     setStaff((staffRows as Staff[]) ?? []);
+    setServices((serviceRows as Service[]) ?? []);
+    setCustomers((customerRows as Customer[]) ?? []);
+    setStaffServices(links ?? []);
+    setWorkingHours((hours as StaffWorkingHours[]) ?? []);
+  }, [branch, supabase]);
 
-    const from = formatDateInput(rangeStart) + "T00:00:00";
-    const to = formatDateInput(rangeEnd) + "T23:59:59";
-
-    const { data } = await supabase
+  const loadAppointments = useCallback(async () => {
+    if (!branch) return;
+    // Only blank the grid on the first load; later refreshes update in place.
+    if (!hasLoadedOnce.current) setIsLoading(true);
+    const { data, error } = await supabase
       .from("appointments")
-      .select(
-        `id, business_id, branch_id, customer_id, staff_id, start_time, end_time, status, notes, source, booking_reference, created_at, updated_at,
-         customers ( full_name ),
-         staff ( full_name ),
-         appointment_services ( service_id, price, duration_minutes, services ( name ) )`
-      )
-      .eq("branch_id", selectedBranch.id)
-      .gte("start_time", from)
-      .lte("start_time", to)
+      .select(APPOINTMENT_SELECT)
+      .eq("branch_id", branch.id)
+      .gte("start_time", salonWallClockToIso(range.from, "00:00"))
+      .lt("start_time", salonWallClockToIso(addDaysToKey(range.to, 1), "00:00"))
       .order("start_time");
 
-    type Row = {
-      id: string;
-      business_id: string;
-      branch_id: string;
-      customer_id: string;
-      staff_id: string;
-      start_time: string;
-      end_time: string;
-      status: AppointmentWithDetails["status"];
-      notes: string | null;
-      source: AppointmentWithDetails["source"];
-      booking_reference: string | null;
-      created_at: string;
-      updated_at: string;
-      customers: { full_name: string } | null;
-      staff: { full_name: string } | null;
-      appointment_services: {
-        service_id: string;
-        price: number;
-        duration_minutes: number;
-        services: { name: string } | null;
-      }[];
-    };
-
-    const mapped: AppointmentWithDetails[] = ((data as unknown as Row[]) ?? []).map((row) => {
-      const svc = row.appointment_services?.[0];
-      return {
-        id: row.id,
-        business_id: row.business_id,
-        branch_id: row.branch_id,
-        customer_id: row.customer_id,
-        staff_id: row.staff_id,
-        start_time: row.start_time,
-        end_time: row.end_time,
-        status: row.status,
-        notes: row.notes,
-        source: row.source,
-        booking_reference: row.booking_reference,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        customer_name: row.customers?.full_name ?? "Unknown",
-        staff_name: row.staff?.full_name ?? "Unassigned",
-        service_name: svc?.services?.name ?? "Service",
-        service_price: svc?.price ?? 0,
-        service_duration_minutes: svc?.duration_minutes ?? 30,
-      };
-    });
-
-    setAppointments(mapped);
+    if (error) show("Couldn't load the calendar.", "error");
+    setAppointments((data ?? []).map(mapAppointmentRow));
+    hasLoadedOnce.current = true;
     setIsLoading(false);
-  }, [selectedBranch, rangeStart, rangeEnd]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [branch, supabase, range.from, range.to, show]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadReferenceData();
+  }, [loadReferenceData]);
+
+  useEffect(() => {
+    loadAppointments();
+  }, [loadAppointments]);
+
+  useEffect(() => {
+    if (autoOpenNew) openCreate({ dateKey: todayInSalon(), staffId: null, time: "10:00" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenNew]);
+
+  const visibleAppointments = useMemo(
+    () => (staffFilter === "all" ? appointments : appointments.filter((a) => a.staff_id === staffFilter)),
+    [appointments, staffFilter]
+  );
+
+  const openingHours = (branch?.opening_hours ?? null) as OpeningHours | null;
+
+  function salonHoursFor(key: string): { open: number; close: number } | null {
+    const day = openingHours?.[DAY_KEYS[dayOfWeekForKey(key)]];
+    if (!day) return null;
+    return { open: timeToMinutes(day.open), close: timeToMinutes(day.close) };
+  }
+
+  /** Grid bounds: the salon's opening hours, widened to fit every booking shown. */
+  const bounds = useMemo(() => {
+    const dates =
+      view === "day"
+        ? [dateKey]
+        : Array.from({ length: view === "week" ? 7 : 42 }, (_, i) => addDaysToKey(range.from, i));
+
+    let start = Infinity;
+    let end = -Infinity;
+
+    for (const key of dates) {
+      const hours = salonHoursFor(key);
+      if (hours) {
+        start = Math.min(start, hours.open);
+        end = Math.max(end, hours.close);
+      }
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      start = DEFAULT_OPEN_MINUTES;
+      end = DEFAULT_CLOSE_MINUTES;
+    }
+
+    for (const appointment of visibleAppointments) {
+      const from = toSalonWallClock(appointment.start_time);
+      const to = toSalonWallClock(appointment.end_time);
+      start = Math.min(start, from.minutes);
+      end = Math.max(end, to.date === from.date ? to.minutes : 24 * 60);
+    }
+
+    return {
+      start: Math.max(0, Math.floor(start / 60) * 60),
+      end: Math.min(24 * 60, Math.ceil(end / 60) * 60),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, dateKey, range.from, visibleAppointments, openingHours]);
+
+  /** Shading for the hours a column isn't bookable (salon shut / staff off). */
+  function closedRanges(key: string, staffId: string | null) {
+    const ranges: { start: number; end: number }[] = [];
+    const salon = salonHoursFor(key);
+
+    if (!salon) return [{ start: bounds.start, end: bounds.end }];
+    if (salon.open > bounds.start) ranges.push({ start: bounds.start, end: salon.open });
+    if (salon.close < bounds.end) ranges.push({ start: salon.close, end: bounds.end });
+
+    if (staffId) {
+      const shift = workingHours.find(
+        (h) => h.staff_id === staffId && h.day_of_week === dayOfWeekForKey(key)
+      );
+      if (!shift || !shift.is_working || !shift.start_time || !shift.end_time) {
+        return [{ start: bounds.start, end: bounds.end }];
+      }
+      const shiftStart = timeToMinutes(shift.start_time);
+      const shiftEnd = timeToMinutes(shift.end_time);
+      if (shiftStart > salon.open) ranges.push({ start: Math.max(bounds.start, salon.open), end: shiftStart });
+      if (shiftEnd < salon.close) ranges.push({ start: shiftEnd, end: Math.min(bounds.end, salon.close) });
+    }
+
+    return ranges;
+  }
+
+  const columns: GridColumn[] = useMemo(() => {
+    if (view === "day") {
+      const members = staffFilter === "all" ? staff : staff.filter((s) => s.id === staffFilter);
+      return members.map((member) => ({
+        key: member.id,
+        label: member.full_name,
+        sublabel: member.job_title ?? undefined,
+        dateKey,
+        staffId: member.id,
+        closedRanges: closedRanges(dateKey, member.id),
+      }));
+    }
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const key = addDaysToKey(range.from, i);
+      return {
+        key,
+        label: weekdayShort(key),
+        sublabel: `${Number(key.slice(8))} ${monthShort(key)}`,
+        dateKey: key,
+        staffId: staffFilter === "all" ? null : staffFilter,
+        closedRanges: closedRanges(key, staffFilter === "all" ? null : staffFilter),
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, staff, staffFilter, dateKey, range.from, bounds.start, bounds.end, workingHours, openingHours]);
+
+  const columnKeyOf = useCallback(
+    (appointment: AppointmentWithDetails) =>
+      view === "day" ? appointment.staff_id : toSalonWallClock(appointment.start_time).date,
+    [view]
+  );
 
   function navigate(delta: number) {
-    setCurrentDate((d) => addDays(d, view === "day" ? delta : delta * 7));
+    if (view === "day") return setDateKey((key) => addDaysToKey(key, delta));
+    if (view === "week") return setDateKey((key) => addDaysToKey(key, delta * 7));
+    setDateKey((key) => {
+      const [year, month] = key.split("-").map(Number);
+      const shifted = new Date(Date.UTC(year, month - 1 + delta, 1));
+      return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    });
   }
 
-  function openNew() {
-    setEditingId(undefined);
-    setFormOpen(true);
+  function openCreate(nextSlot: AppointmentSlot) {
+    setEditing(undefined);
+    setSlot({
+      ...nextSlot,
+      staffId: nextSlot.staffId ?? (staffFilter !== "all" ? staffFilter : staff[0]?.id ?? null),
+    });
+    setModalOpen(true);
   }
 
-  function openEdit(id: string) {
-    setEditingId(id);
-    setFormOpen(true);
+  function openEdit(appointment: AppointmentWithDetails) {
+    setSlot(undefined);
+    setEditing(appointment);
+    setModalOpen(true);
   }
 
-  const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i);
+  async function moveAppointment({ appointment, dateKey: newDate, staffId, startMinutes }: MoveTarget) {
+    const durationMinutes = Math.round(
+      (new Date(appointment.end_time).getTime() - new Date(appointment.start_time).getTime()) / 60_000
+    );
+    const startIso = combineDateAndTime(newDate, minutesToTime(startMinutes));
+    const endIso = new Date(new Date(startIso).getTime() + durationMinutes * 60_000).toISOString();
+
+    // Optimistic move, rolled back if the database rejects it.
+    const previous = appointments;
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === appointment.id ? { ...a, staff_id: staffId, start_time: startIso, end_time: endIso } : a
+      )
+    );
+
+    const { error } = await supabase
+      .from("appointments")
+      .update({ staff_id: staffId, start_time: startIso, end_time: endIso })
+      .eq("id", appointment.id);
+
+    if (error) {
+      setAppointments(previous);
+      show(
+        error.code === "23P01"
+          ? "That staff member is already booked at that time."
+          : "Couldn't move the appointment.",
+        "error"
+      );
+      return;
+    }
+
+    show("Appointment moved");
+    loadAppointments();
+  }
+
+  const shortRangeLabel =
+    view === "day"
+      ? formatDateKey(dateKey)
+      : view === "week"
+        ? `${formatDateKey(range.from)} – ${formatDateKey(range.to)}`
+        : formatMonthLabel(dateKey);
+
+  const rangeLabel =
+    view === "day"
+      ? formatDateKeyLong(dateKey)
+      : view === "week"
+        ? `${formatDateKey(range.from)} – ${formatDateKey(range.to)}`
+        : formatMonthLabel(dateKey);
+
+  if (!branch) {
+    return (
+      <EmptyState
+        icon={CalendarDays}
+        title="No salon set up yet"
+        description="Add your salon details in Settings before using the calendar."
+      />
+    );
+  }
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" onClick={() => navigate(-1)} aria-label="Previous">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-[9rem] text-center text-sm font-medium text-ink">
-            {view === "day"
-              ? format(currentDate, "EEE, MMM d yyyy")
-              : `${format(rangeStart, "MMM d")} – ${format(rangeEnd, "MMM d")}`}
+      <div className="mb-4 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" onClick={() => navigate(-1)} aria-label="Previous">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => navigate(1)} aria-label="Next">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setDateKey(todayInSalon())}>
+              Today
+            </Button>
+            <p className="ml-2 hidden min-w-0 truncate text-base font-semibold text-ink lg:block">
+              {rangeLabel}
+            </p>
           </div>
-          <Button variant="outline" size="icon" onClick={() => navigate(1)} aria-label="Next">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl border border-border p-0.5">
-            {(["day", "week"] as const).map((v) => (
+          <div className="flex shrink-0 rounded-xl border border-border p-0.5">
+            {(["day", "week", "month"] as View[]).map((option) => (
               <button
-                key={v}
-                onClick={() => setView(v)}
+                key={option}
+                onClick={() => setView(option)}
                 className={cn(
-                  "rounded-lg px-3 py-1.5 text-xs font-medium capitalize",
-                  view === v ? "bg-brand text-white" : "text-ink-muted"
+                  "rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors",
+                  view === option ? "bg-brand text-white" : "text-ink-muted hover:text-ink"
                 )}
               >
-                {v}
+                {option}
               </button>
             ))}
           </div>
-          <Button size="sm" onClick={openNew} className="hidden sm:inline-flex">
-            <Plus className="h-4 w-4" /> Add Appointment
+        </div>
+
+        <div className="flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink lg:hidden">
+            {shortRangeLabel}
+          </p>
+          <div className="hidden flex-1 lg:block" />
+
+          <div className="flex w-40 items-center gap-1.5">
+            <Users className="h-4 w-4 shrink-0 text-ink-muted" />
+            <Select
+              value={staffFilter}
+              onChange={(e) => setStaffFilter(e.target.value)}
+              className="h-9 text-xs"
+              aria-label="Filter by staff"
+            >
+              <option value="all">All staff</option>
+              {staff.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.full_name}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <Button
+            size="sm"
+            onClick={() => openCreate({ dateKey, staffId: null, time: "10:00" })}
+            className="h-9 shrink-0"
+          >
+            <Plus className="h-4 w-4" /> New
           </Button>
         </div>
       </div>
 
-      <Button size="sm" onClick={openNew} className="mb-4 w-full sm:hidden">
-        <Plus className="h-4 w-4" /> Add Appointment
-      </Button>
-
-      {!selectedBranch ? (
-        <EmptyState icon={CalendarDays} title="No branch selected" description="Create a branch first." />
-      ) : isLoading ? (
-        <div className="py-16 text-center text-sm text-ink-muted">Loading calendar…</div>
-      ) : view === "day" ? (
-        staff.length === 0 ? (
-          <EmptyState icon={CalendarDays} title="No active staff at this branch" />
-        ) : (
-          <div className="overflow-x-auto no-scrollbar rounded-card border border-border bg-surface">
-            <div className="flex" style={{ minWidth: `${64 + staff.length * 160}px` }}>
-              {/* Time gutter */}
-              <div className="w-16 shrink-0 border-r border-border">
-                <div className="h-10 border-b border-border" />
-                {hours.map((h) => (
-                  <div
-                    key={h}
-                    style={{ height: HOUR_HEIGHT }}
-                    className="border-b border-border px-1.5 pt-1 text-right text-[10px] text-ink-muted"
-                  >
-                    {format(new Date(2000, 0, 1, h), "h a")}
-                  </div>
-                ))}
-              </div>
-
-              {staff.map((member) => {
-                const memberAppointments = appointments.filter(
-                  (a) => a.staff_id === member.id && isSameDay(parseISO(a.start_time), currentDate)
-                );
-                return (
-                  <div key={member.id} className="w-40 shrink-0 border-r border-border last:border-r-0">
-                    <div className="flex h-10 items-center justify-center border-b border-border px-2">
-                      <p className="truncate text-xs font-medium text-ink">{member.full_name}</p>
-                    </div>
-                    <div className="relative" style={{ height: hours.length * HOUR_HEIGHT }}>
-                      {hours.map((h) => (
-                        <div
-                          key={h}
-                          className="absolute inset-x-0 border-b border-border/60"
-                          style={{ top: (h - DAY_START_HOUR) * HOUR_HEIGHT, height: HOUR_HEIGHT }}
-                        />
-                      ))}
-                      {memberAppointments.map((appt) => {
-                        const start = parseISO(appt.start_time);
-                        const minutesFromStart =
-                          (start.getHours() - DAY_START_HOUR) * 60 + start.getMinutes();
-                        const top = (minutesFromStart / 60) * HOUR_HEIGHT;
-                        const durationMin =
-                          (parseISO(appt.end_time).getTime() - start.getTime()) / 60000;
-                        const height = Math.max((durationMin / 60) * HOUR_HEIGHT, 32);
-                        return (
-                          <AppointmentCard
-                            key={appt.id}
-                            appointment={appt}
-                            compact
-                            style={{ top, height }}
-                            onClick={() => openEdit(appt.id)}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )
-      ) : (
-        <WeekList
-          rangeStart={rangeStart}
-          appointments={appointments}
-          onSelect={openEdit}
+      {isLoading ? (
+        <div className="rounded-card border border-border bg-surface py-20 text-center text-sm text-ink-muted">
+          Loading calendar…
+        </div>
+      ) : view === "month" ? (
+        <MonthGrid
+          monthKey={dateKey}
+          appointments={visibleAppointments}
+          onSelectDay={(key) => {
+            setDateKey(key);
+            setView("day");
+          }}
+          onSelectAppointment={openEdit}
         />
+      ) : columns.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="No active staff yet"
+          description="Add a staff member to start booking appointments into the calendar."
+        />
+      ) : (
+        <>
+          <TimeGrid
+            columns={columns}
+            appointments={visibleAppointments}
+            columnKeyOf={columnKeyOf}
+            startMinutes={bounds.start}
+            endMinutes={bounds.end}
+            columnMinWidth={view === "day" ? 168 : 132}
+            onSelect={openEdit}
+            onCreate={openCreate}
+            onMove={moveAppointment}
+          />
+          <p className="mt-2 px-1 text-xs text-ink-muted">
+            Tap an empty slot to book · drag a card to reschedule
+            {view === "day" ? " or move it to another staff member" : ""}.
+          </p>
+        </>
       )}
 
       <AppointmentFormModal
-        open={formOpen}
-        onClose={() => setFormOpen(false)}
-        onSaved={loadData}
-        branches={branches}
-        defaultBranchId={selectedBranch?.id}
-        defaultDate={formatDateInput(currentDate)}
-        appointmentId={editingId}
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSaved={loadAppointments}
+        businessId={businessId}
+        branchId={branch.id}
+        staff={staff}
+        services={services}
+        customers={customers}
+        staffServices={staffServices}
+        onCustomerCreated={(customer) =>
+          setCustomers((prev) =>
+            [...prev, customer].sort((a, b) => a.full_name.localeCompare(b.full_name))
+          )
+        }
+        appointment={editing}
+        slot={slot}
       />
-    </div>
-  );
-}
-
-function WeekList({
-  rangeStart,
-  appointments,
-  onSelect,
-}: {
-  rangeStart: Date;
-  appointments: AppointmentWithDetails[];
-  onSelect: (id: string) => void;
-}) {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(rangeStart, i));
-
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {days.map((day) => {
-        const dayAppointments = appointments
-          .filter((a) => isSameDay(parseISO(a.start_time), day))
-          .sort((a, b) => a.start_time.localeCompare(b.start_time));
-        return (
-          <div key={day.toISOString()} className="rounded-card border border-border bg-surface p-3">
-            <p className="mb-2 text-sm font-semibold text-ink">{format(day, "EEE, MMM d")}</p>
-            {dayAppointments.length === 0 ? (
-              <p className="text-xs text-ink-muted">No appointments</p>
-            ) : (
-              <div className="space-y-2">
-                {dayAppointments.map((appt) => (
-                  <button
-                    key={appt.id}
-                    onClick={() => onSelect(appt.id)}
-                    className="flex w-full items-center justify-between rounded-lg border border-border px-2.5 py-2 text-left hover:bg-surface-subtle"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium text-ink">{appt.customer_name}</p>
-                      <p className="truncate text-[11px] text-ink-muted">
-                        {appt.service_name} · {appt.staff_name}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-[11px] text-ink-muted">
-                      {formatTime(appt.start_time)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }

@@ -10,26 +10,37 @@ import { useToast } from "@/components/ui/Toast";
 import { FormField, Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
-import { Branch, Service, Staff } from "@/lib/types/database.types";
+import { Service, Staff } from "@/lib/types/database.types";
+import { cn } from "@/lib/utils/cn";
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-interface WorkingHourRow {
+export interface WorkingHourRow {
   day_of_week: number;
   is_working: boolean;
   start_time: string;
   end_time: string;
 }
 
+const defaultHours = (): WorkingHourRow[] =>
+  DAYS.map((_, index) => ({
+    day_of_week: index,
+    is_working: index !== 5, // Friday off by default
+    start_time: "10:00",
+    end_time: "19:00",
+  }));
+
 export function StaffForm({
   staff,
-  branches,
+  businessId,
+  branchId,
   services,
   initialServiceIds = [],
   initialHours,
 }: {
   staff?: Staff;
-  branches: Branch[];
+  businessId: string;
+  branchId: string | null;
   services: Service[];
   initialServiceIds?: string[];
   initialHours?: WorkingHourRow[];
@@ -38,15 +49,8 @@ export function StaffForm({
   const { show } = useToast();
   const supabase = createClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hours, setHours] = useState<WorkingHourRow[]>(
-    initialHours ??
-      DAYS.map((_, i) => ({
-        day_of_week: i,
-        is_working: i !== 5,
-        start_time: "10:00",
-        end_time: "19:00",
-      }))
-  );
+  const [error, setError] = useState<string | null>(null);
+  const [hours, setHours] = useState<WorkingHourRow[]>(initialHours ?? defaultHours());
 
   const {
     register,
@@ -61,8 +65,6 @@ export function StaffForm({
       phone: staff?.phone ?? "",
       email: staff?.email ?? "",
       job_title: staff?.job_title ?? "",
-      branch_id: staff?.branch_id ?? branches[0]?.id ?? "",
-      commission_percentage: staff?.commission_percentage ?? 15,
       employment_status: staff?.employment_status ?? "active",
       service_ids: initialServiceIds,
     },
@@ -71,20 +73,32 @@ export function StaffForm({
   const selectedServiceIds = watch("service_ids");
 
   function toggleService(id: string) {
-    const set = new Set(selectedServiceIds);
-    if (set.has(id)) {
-      set.delete(id);
-    } else {
-      set.add(id);
-    }
-    setValue("service_ids", Array.from(set));
+    const next = new Set(selectedServiceIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setValue("service_ids", Array.from(next));
   }
 
   function updateHour(day: number, patch: Partial<WorkingHourRow>) {
     setHours((prev) => prev.map((h) => (h.day_of_week === day ? { ...h, ...patch } : h)));
   }
 
+  function applyFirstWorkingDayToAll() {
+    const template = hours.find((h) => h.is_working) ?? hours[0];
+    setHours((prev) =>
+      prev.map((h) => ({ ...h, start_time: template.start_time, end_time: template.end_time }))
+    );
+  }
+
   async function onSubmit(values: StaffFormValues) {
+    setError(null);
+
+    const invalid = hours.find((h) => h.is_working && h.end_time <= h.start_time);
+    if (invalid) {
+      setError(`${DAYS[invalid.day_of_week]}: end time must be after start time.`);
+      return;
+    }
+
     setIsSubmitting(true);
 
     const payload = {
@@ -92,31 +106,30 @@ export function StaffForm({
       phone: values.phone || null,
       email: values.email || null,
       job_title: values.job_title || null,
-      branch_id: values.branch_id,
-      commission_percentage: values.commission_percentage,
       employment_status: values.employment_status,
     };
 
     let staffId = staff?.id;
+
     if (staff) {
-      await supabase.from("staff").update(payload).eq("id", staff.id);
+      const { error: updateError } = await supabase.from("staff").update(payload).eq("id", staff.id);
+      if (updateError) {
+        setIsSubmitting(false);
+        setError("Couldn't save this staff member.");
+        return;
+      }
     } else {
-      const { data: profile } = await supabase.auth.getUser();
-      const { data: profileRow } = await supabase
-        .from("profiles")
-        .select("business_id")
-        .eq("id", profile.user?.id)
-        .single();
-      const { data: inserted, error } = await supabase
+      const { data, error: insertError } = await supabase
         .from("staff")
-        .insert({ ...payload, business_id: profileRow?.business_id })
+        .insert({ ...payload, business_id: businessId, branch_id: branchId })
         .select("id")
         .single();
-      if (error || !inserted) {
+      if (insertError || !data) {
         setIsSubmitting(false);
-        return show("Couldn't create staff member.", "error");
+        setError("Couldn't create this staff member.");
+        return;
       }
-      staffId = inserted.id;
+      staffId = data.id;
     }
 
     if (staffId) {
@@ -146,101 +159,124 @@ export function StaffForm({
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="max-w-lg space-y-4">
-      <FormField label="Full name" error={errors.full_name?.message}>
-        <Input {...register("full_name")} />
-      </FormField>
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label="Phone" error={errors.phone?.message}>
-          <Input {...register("phone")} />
+    <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl space-y-5">
+      <div className="space-y-4 rounded-card border border-border bg-surface p-4 shadow-card">
+        <FormField label="Full name" error={errors.full_name?.message}>
+          <Input {...register("full_name")} placeholder="e.g. Sarah" />
         </FormField>
-        <FormField label="Email" error={errors.email?.message}>
-          <Input type="email" {...register("email")} />
-        </FormField>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label="Job title" error={errors.job_title?.message}>
-          <Input {...register("job_title")} placeholder="e.g. Hair Stylist" />
-        </FormField>
-        <FormField label="Branch" error={errors.branch_id?.message}>
-          <Select {...register("branch_id")}>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label="Commission %" error={errors.commission_percentage?.message}>
-          <Input type="number" step="0.1" {...register("commission_percentage")} />
-        </FormField>
-        <FormField label="Status" error={errors.employment_status?.message}>
-          <Select {...register("employment_status")}>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </Select>
-        </FormField>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField label="Phone" error={errors.phone?.message}>
+            <Input {...register("phone")} placeholder="Optional" />
+          </FormField>
+          <FormField label="Email" error={errors.email?.message}>
+            <Input type="email" {...register("email")} placeholder="Optional" />
+          </FormField>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField label="Job title" error={errors.job_title?.message}>
+            <Input {...register("job_title")} placeholder="e.g. Hair Stylist" />
+          </FormField>
+          <FormField label="Status" error={errors.employment_status?.message}>
+            <Select {...register("employment_status")}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </FormField>
+        </div>
       </div>
 
-      <div>
-        <p className="mb-1.5 text-sm font-medium text-ink">Services performed</p>
+      <div className="rounded-card border border-border bg-surface p-4 shadow-card">
+        <p className="text-sm font-medium text-ink">Services this person provides</p>
+        <p className="mb-3 text-xs text-ink-muted">
+          Only these services can be booked with them online.
+        </p>
         <div className="flex flex-wrap gap-2">
-          {services.map((s) => {
-            const active = selectedServiceIds?.includes(s.id);
+          {services.length === 0 && (
+            <p className="text-xs text-ink-muted">Add services first, then assign them here.</p>
+          )}
+          {services.map((service) => {
+            const active = selectedServiceIds?.includes(service.id);
             return (
               <button
                 type="button"
-                key={s.id}
-                onClick={() => toggleService(s.id)}
-                className={`rounded-pill border px-3 py-1.5 text-xs font-medium ${
+                key={service.id}
+                onClick={() => toggleService(service.id)}
+                className={cn(
+                  "rounded-pill border px-3 py-1.5 text-xs font-medium transition-colors",
                   active
                     ? "border-brand-500 bg-brand-50 text-brand-700"
-                    : "border-border bg-surface text-ink-muted"
-                }`}
+                    : "border-border bg-surface text-ink-muted hover:text-ink"
+                )}
               >
-                {s.name}
+                {service.name}
               </button>
             );
           })}
         </div>
       </div>
 
-      <div>
-        <p className="mb-1.5 text-sm font-medium text-ink">Working hours</p>
-        <div className="space-y-1.5">
-          {hours.map((h) => (
-            <div key={h.day_of_week} className="flex items-center gap-2">
-              <label className="flex w-24 shrink-0 items-center gap-2 text-xs text-ink">
+      <div className="rounded-card border border-border bg-surface p-4 shadow-card">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">Working days & hours</p>
+            <p className="text-xs text-ink-muted">Availability online is limited to these hours.</p>
+          </div>
+          <button
+            type="button"
+            onClick={applyFirstWorkingDayToAll}
+            className="text-xs font-medium text-brand-700 hover:underline"
+          >
+            Copy hours to all days
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {hours.map((hour) => (
+            <div
+              key={hour.day_of_week}
+              className={cn(
+                "flex flex-wrap items-center gap-2 rounded-xl border border-border px-3 py-2",
+                !hour.is_working && "bg-surface-subtle"
+              )}
+            >
+              <label className="flex w-32 shrink-0 items-center gap-2 text-sm text-ink">
                 <input
                   type="checkbox"
-                  checked={h.is_working}
-                  onChange={(e) => updateHour(h.day_of_week, { is_working: e.target.checked })}
+                  checked={hour.is_working}
+                  onChange={(e) => updateHour(hour.day_of_week, { is_working: e.target.checked })}
+                  className="h-4 w-4 accent-[color:var(--color-brand)]"
                 />
-                {DAYS[h.day_of_week]}
+                {DAYS[hour.day_of_week]}
               </label>
-              <Input
-                type="time"
-                disabled={!h.is_working}
-                value={h.start_time}
-                onChange={(e) => updateHour(h.day_of_week, { start_time: e.target.value })}
-                className="h-9"
-              />
-              <span className="text-xs text-ink-muted">to</span>
-              <Input
-                type="time"
-                disabled={!h.is_working}
-                value={h.end_time}
-                onChange={(e) => updateHour(h.day_of_week, { end_time: e.target.value })}
-                className="h-9"
-              />
+              {hour.is_working ? (
+                <div className="flex flex-1 items-center gap-2">
+                  <Input
+                    type="time"
+                    value={hour.start_time}
+                    onChange={(e) => updateHour(hour.day_of_week, { start_time: e.target.value })}
+                    className="h-9 max-w-[8rem]"
+                    aria-label={`${DAYS[hour.day_of_week]} start time`}
+                  />
+                  <span className="text-xs text-ink-muted">to</span>
+                  <Input
+                    type="time"
+                    value={hour.end_time}
+                    onChange={(e) => updateHour(hour.day_of_week, { end_time: e.target.value })}
+                    className="h-9 max-w-[8rem]"
+                    aria-label={`${DAYS[hour.day_of_week]} end time`}
+                  />
+                </div>
+              ) : (
+                <span className="text-sm text-ink-muted">Day off</span>
+              )}
             </div>
           ))}
         </div>
       </div>
 
-      <div className="flex justify-end gap-2 pt-1">
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-danger">{error}</p>}
+
+      <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={() => router.back()}>
           Cancel
         </Button>

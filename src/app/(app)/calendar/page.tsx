@@ -1,19 +1,24 @@
 import { CalendarView } from "@/components/calendar/CalendarView";
-import { PageHeader } from "@/components/ui/Feedback";
-import { getBranches } from "@/lib/supabase/queries";
+import { getCurrentProfile, getPrimaryBranch } from "@/lib/supabase/queries";
+
+export const dynamic = "force-dynamic";
 
 export default async function CalendarPage({
   searchParams,
 }: {
   searchParams: Promise<{ new?: string }>;
 }) {
-  const branches = await getBranches();
-  const { new: autoNew } = await searchParams;
+  const [branch, profile, { new: autoNew }] = await Promise.all([
+    getPrimaryBranch(),
+    getCurrentProfile(),
+    searchParams,
+  ]);
 
   return (
-    <div>
-      <PageHeader title="Calendar" description="Day and week view across your team." />
-      <CalendarView branches={branches} autoOpenNew={autoNew === "1"} />
-    </div>
+    <CalendarView
+      branch={branch}
+      businessId={profile?.business_id ?? ""}
+      autoOpenNew={autoNew === "1"}
+    />
   );
 }

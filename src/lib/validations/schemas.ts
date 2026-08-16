@@ -14,8 +14,6 @@ export const staffSchema = z.object({
   phone: z.string().optional().or(z.literal("")),
   email: z.string().email().optional().or(z.literal("")),
   job_title: z.string().optional().or(z.literal("")),
-  branch_id: z.string().uuid("Select a branch"),
-  commission_percentage: z.coerce.number().min(0).max(100),
   employment_status: z.enum(["active", "inactive"]),
   service_ids: z.array(z.string().uuid()).default([]),
 });
@@ -23,7 +21,6 @@ export type StaffFormValues = z.infer<typeof staffSchema>;
 
 export const serviceSchema = z.object({
   name: z.string().min(2, "Service name is required"),
-  category_id: z.string().uuid("Select a category"),
   description: z.string().optional().or(z.literal("")),
   duration_minutes: z.coerce.number().int().min(5, "Minimum 5 minutes"),
   price: z.coerce.number().min(0),
@@ -33,13 +30,13 @@ export const serviceSchema = z.object({
 export type ServiceFormValues = z.infer<typeof serviceSchema>;
 
 export const appointmentSchema = z.object({
-  branch_id: z.string().uuid("Select a branch"),
   customer_id: z.string().uuid("Select a customer"),
   service_id: z.string().uuid("Select a service"),
   staff_id: z.string().uuid("Select a staff member"),
   date: z.string().min(1, "Select a date"),
   start_time: z.string().min(1, "Select a start time"),
-  price: z.coerce.number().min(0),
+  duration_minutes: z.coerce.number().int().min(5, "Minimum 5 minutes"),
+  price: z.coerce.number().min(0, "Price can't be negative"),
   notes: z.string().optional().or(z.literal("")),
   status: z.enum([
     "confirmed",
@@ -52,6 +49,13 @@ export const appointmentSchema = z.object({
   ]),
 });
 export type AppointmentFormValues = z.infer<typeof appointmentSchema>;
+
+/** Adding a walk-in customer from inside the appointment form. */
+export const quickCustomerSchema = z.object({
+  full_name: z.string().min(2, "Name is required"),
+  phone: z.string().min(6, "Phone number is required"),
+});
+export type QuickCustomerValues = z.infer<typeof quickCustomerSchema>;
 
 export const expenseSchema = z.object({
   date: z.string().min(1, "Date is required"),

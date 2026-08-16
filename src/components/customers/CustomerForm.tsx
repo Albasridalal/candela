@@ -16,6 +16,7 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
   const { show } = useToast();
   const supabase = createClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const {
     register,
@@ -32,8 +33,11 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
     },
   });
 
+  const DUPLICATE_PHONE = "Another customer already has that phone number.";
+
   async function onSubmit(values: CustomerFormValues) {
     setIsSubmitting(true);
+    setError(null);
 
     const payload = {
       full_name: values.full_name,
@@ -44,26 +48,37 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
     };
 
     if (customer) {
-      const { error } = await supabase.from("customers").update(payload).eq("id", customer.id);
+      const { error: updateError } = await supabase
+        .from("customers")
+        .update(payload)
+        .eq("id", customer.id);
       setIsSubmitting(false);
-      if (error) return show("Couldn't update customer.", "error");
+      if (updateError) {
+        return setError(
+          updateError.code === "23505" ? DUPLICATE_PHONE : "Couldn't update this customer."
+        );
+      }
       show("Customer updated");
       router.push(`/customers/${customer.id}`);
     } else {
-      const { data: profile } = await supabase.auth.getUser();
+      const { data: userData } = await supabase.auth.getUser();
       const { data: profileRow } = await supabase
         .from("profiles")
         .select("business_id")
-        .eq("id", profile.user?.id)
-        .single();
+        .eq("id", userData.user?.id ?? "")
+        .maybeSingle();
 
-      const { data: inserted, error } = await supabase
+      const { data: inserted, error: insertError } = await supabase
         .from("customers")
         .insert({ ...payload, business_id: profileRow?.business_id })
         .select("id")
         .single();
       setIsSubmitting(false);
-      if (error || !inserted) return show("Couldn't create customer.", "error");
+      if (insertError || !inserted) {
+        return setError(
+          insertError?.code === "23505" ? DUPLICATE_PHONE : "Couldn't create this customer."
+        );
+      }
       show("Customer added");
       router.push(`/customers/${inserted.id}`);
     }
@@ -87,6 +102,8 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
       <FormField label="Notes" error={errors.notes?.message}>
         <Textarea {...register("notes")} placeholder="Preferences, allergies, notes…" />
       </FormField>
+
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-danger">{error}</p>}
 
       <div className="flex justify-end gap-2 pt-1">
         <Button type="button" variant="outline" onClick={() => router.back()}>

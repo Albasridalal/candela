@@ -1,8 +1,11 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfile, getPrimaryBranch } from "@/lib/supabase/queries";
 import { PageHeader } from "@/components/ui/Feedback";
 import { StaffForm } from "@/components/staff/StaffForm";
 import { TimeOffManager } from "@/components/staff/TimeOffManager";
+
+export const dynamic = "force-dynamic";
 
 export default async function EditStaffPage({
   params,
@@ -13,15 +16,17 @@ export default async function EditStaffPage({
   const supabase = await createClient();
 
   const [
+    profile,
+    branch,
     { data: staff },
-    { data: branches },
     { data: services },
     { data: staffServices },
     { data: hours },
     { data: timeOff },
   ] = await Promise.all([
-    supabase.from("staff").select("*").eq("id", id).single(),
-    supabase.from("branches").select("*").order("name"),
+    getCurrentProfile(),
+    getPrimaryBranch(),
+    supabase.from("staff").select("*").eq("id", id).maybeSingle(),
     supabase.from("services").select("*").eq("is_active", true).order("name"),
     supabase.from("staff_services").select("service_id").eq("staff_id", id),
     supabase.from("staff_working_hours").select("*").eq("staff_id", id).order("day_of_week"),
@@ -32,10 +37,11 @@ export default async function EditStaffPage({
 
   return (
     <div>
-      <PageHeader title="Edit Staff Member" />
+      <PageHeader title={`Edit ${staff.full_name}`} />
       <StaffForm
         staff={staff}
-        branches={branches ?? []}
+        businessId={profile?.business_id ?? ""}
+        branchId={branch?.id ?? null}
         services={services ?? []}
         initialServiceIds={(staffServices ?? []).map((s) => s.service_id)}
         initialHours={
@@ -49,7 +55,7 @@ export default async function EditStaffPage({
             : undefined
         }
       />
-      <div className="mt-6 max-w-lg">
+      <div className="mt-6 max-w-2xl">
         <TimeOffManager staffId={id} initialTimeOff={timeOff ?? []} />
       </div>
     </div>
