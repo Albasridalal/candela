@@ -11,6 +11,7 @@
   const STATUSES = { new: 'جديد', confirmed: 'مؤكد', done: 'منجز' };
   const DEFAULT_FLOWERS = ['جوري', 'توليب', 'ليليوم', 'أوركيد', 'هيدرانجا', 'بيبي بريث', 'قرنفل', 'كالا', 'بيوني', 'أقحوان', 'رانونكولوس', 'يوكالبتوس', 'لافندر', 'عباد الشمس'];
   const UPCOMING_LIMIT = 8;
+  const CURRENCY = 'د.ك'; // Kuwaiti dinar — change here if needed
   const PHOTO_MAX = 1200;
   const PHOTO_QUALITY = 0.82;
   const BACKUP_KEY = 'florist:lastBackup';
@@ -66,6 +67,29 @@
     const ta = a.time || '99:99', tb = b.time || '99:99';
     if (ta !== tb) return ta < tb ? -1 : 1;
     return (a.createdAt || 0) - (b.createdAt || 0);
+  }
+
+  // ---------------------------------------------------------------
+  // Money
+  // ---------------------------------------------------------------
+  // '' = empty, NaN = invalid, otherwise a number
+  function parseMoney(raw) {
+    const v = toLatinDigits(raw).replace(/[٫,]/g, '.').replace(/[\s\u066C]/g, '').replace(CURRENCY, '');
+    if (v === '') return '';
+    return /^\d+(\.\d+)?$/.test(v) ? Number(v) : NaN;
+  }
+  const round3 = (n) => Math.round(n * 1000) / 1000;
+  function fmtMoney(n) {
+    return `${round3(n).toLocaleString('en-US', { maximumFractionDigits: 3 })} ${CURRENCY}`;
+  }
+  // { total, paid, remaining, state: 'none' | 'unpaid' | 'partial' | 'paid' }
+  function payment(o) {
+    const total = typeof o.price === 'number' ? o.price : null;
+    const paid = typeof o.paid === 'number' ? o.paid : 0;
+    if (total == null) return { total: null, paid, remaining: null, state: 'none' };
+    const remaining = round3(Math.max(total - paid, 0));
+    const state = remaining === 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
+    return { total, paid, remaining, state };
   }
 
   // ---------------------------------------------------------------
@@ -200,6 +224,7 @@
     viewMonth: now.getMonth(),
     selected: todayISO(),
     query: '',
+    showDue: false,
     dayDate: null,
     detailId: null,
     form: null,
@@ -302,6 +327,9 @@
       : `<div class="when">${o.time ? `<b style="font-size:14px">${esc(fmtTime(o.time).split(' ')[0])}</b><small>${fmtTime(o.time).split(' ')[1]}</small>` : '<small>بدون<br>وقت</small>'}</div>`;
     const meta = [];
     if (showDate && o.time) meta.push(`<span>${icon('clock')}${esc(fmtTime(o.time))}</span>`);
+    const pay = payment(o);
+    if (pay.state === 'paid') meta.push('<span class="pay-chip paid">مدفوع ✓</span>');
+    else if (pay.state !== 'none') meta.push(`<span class="pay-chip due">باقي ${esc(fmtMoney(pay.remaining))}</span>`);
     if (o.location) meta.push(`<span class="loc">${icon('pin')}${esc(o.location.split('\n')[0])}</span>`);
     return `
       <button class="order ${o.type} ${o.status === 'done' ? 'is-done' : ''}" type="button" data-id="${esc(o.id)}">
@@ -379,12 +407,37 @@
       : emptyState('لا توجد طلبات قادمة — اضغط «طلب جديد» لإضافة أول طلب');
   }
 
+  function dueOrders() {
+    return ordersArray().filter((o) => { const p = payment(o); return p.state === 'unpaid' || p.state === 'partial'; }).sort(sortOrders);
+  }
+
+  function renderDue() {
+    const list = dueOrders();
+    const total = list.reduce((sum, o) => sum + payment(o).remaining, 0);
+    if (!list.length) state.showDue = false;
+    $('#dueStrip').hidden = !list.length || !!normalize(state.query);
+    $('#dueTotal').textContent = `مبالغ متبقية: ${fmtMoney(total)}`;
+    $('#dueSub').textContent = `على ${list.length} ${list.length === 1 ? 'طلب' : 'طلبات'}`;
+    $('#dueAction').textContent = state.showDue ? 'إخفاء' : 'عرض';
+    $('#dueStrip').classList.toggle('active', state.showDue);
+  }
+
   function renderSearch() {
     const q = normalize(state.query);
     const section = $('#searchResults');
-    section.hidden = !q;
     $('#searchClear').hidden = !state.query;
+    renderDue();
+    if (!q && state.showDue) {
+      const list = dueOrders();
+      section.hidden = false;
+      $('#resultsTitle').textContent = 'طلبات عليها مبالغ متبقية';
+      $('#searchCount').textContent = `${list.length} طلب`;
+      $('#searchList').innerHTML = list.map((o) => orderCard(o)).join('');
+      return;
+    }
+    section.hidden = !q;
     if (!q) return;
+    $('#resultsTitle').textContent = 'نتائج البحث';
     const today = todayISO();
     const list = ordersArray().filter((o) => normalize(o.customer).includes(q));
     // Upcoming first (soonest first), then past (most recent first)
@@ -471,6 +524,8 @@
         ` : '<p class="muted">لم تُضف تفاصيل الورد</p>'}
       </div>
 
+      ${paymentSection(o)}
+
       ${o.notes ? `<div class="card d-sec"><h4>ملاحظات</h4><p>${esc(o.notes)}</p></div>` : ''}
 
       ${(o.photoIds || []).length ? `
@@ -490,6 +545,36 @@
     for (const img of $$('img[data-photo]', body)) {
       photoURL(img.dataset.photo).then((url) => { if (url) img.src = url; });
     }
+  }
+
+  function paymentSection(o) {
+    const p = payment(o);
+    if (p.state === 'none') {
+      return `<div class="card d-sec"><h4>الدفع</h4><p class="muted">لم يُحدد السعر${p.paid ? ` · مدفوع ${esc(fmtMoney(p.paid))}` : ''}</p></div>`;
+    }
+    const pct = p.total > 0 ? Math.min(100, Math.round((p.paid / p.total) * 100)) : 100;
+    const label = { paid: 'مدفوع بالكامل', partial: 'مدفوع جزئياً', unpaid: 'غير مدفوع' }[p.state];
+    return `
+      <div class="card d-sec pay-sec ${p.state}">
+        <div class="pay-head"><h4>الدفع</h4><span class="pay-chip ${p.state === 'paid' ? 'paid' : 'due'}">${label}</span></div>
+        <div class="pay-grid">
+          <div><small>السعر الكلي</small><b>${esc(fmtMoney(p.total))}</b></div>
+          <div><small>المدفوع</small><b>${esc(fmtMoney(p.paid))}</b></div>
+          <div class="rem"><small>المتبقي</small><b>${esc(fmtMoney(p.remaining))}</b></div>
+        </div>
+        <div class="pay-bar"><span style="width:${pct}%"></span></div>
+        ${p.remaining > 0 ? `<button class="btn sage block-btn" type="button" id="dPayFull">تم استلام المتبقي (${esc(fmtMoney(p.remaining))})</button>` : ''}
+      </div>`;
+  }
+
+  async function markPaidFull(id) {
+    const o = state.orders.get(id);
+    if (!o || typeof o.price !== 'number') return;
+    const updated = { ...o, paid: o.price, updatedAt: Date.now() };
+    await store.saveOrder(updated, [], []);
+    state.orders.set(id, updated);
+    refresh();
+    toast('تم تسجيل الدفع كاملاً 💰');
   }
 
   function openDetail(id) {
@@ -611,6 +696,9 @@
     $('#fCustomer').value = order ? order.customer : '';
     $('#fLocation').value = order ? (order.location || '') : '';
     $('#fNotes').value = order ? (order.notes || '') : '';
+    $('#fPrice').value = order && typeof order.price === 'number' ? String(order.price) : '';
+    $('#fPaid').value = order && typeof order.paid === 'number' ? String(order.paid) : '';
+    updateRemaining();
     setSeg($('#fType'), state.form.type);
     setSeg($('#fStatus'), state.form.status);
     updateLocationLabel();
@@ -634,6 +722,21 @@
     $('#orderForm').scrollTop = 0;
   }
 
+  function updateRemaining() {
+    const price = parseMoney($('#fPrice').value);
+    const paid = parseMoney($('#fPaid').value);
+    const el = $('#fRemaining');
+    el.className = 'pay-remaining';
+    $('#fPaidFull').hidden = !(typeof price === 'number' && price > 0 && paid !== price);
+    if (Number.isNaN(price) || Number.isNaN(paid)) { el.textContent = 'اكتب المبلغ بالأرقام'; el.classList.add('bad'); return; }
+    if (typeof price !== 'number') { el.textContent = paid ? `المدفوع: ${fmtMoney(paid)}` : 'المتبقي: —'; return; }
+    const remaining = round3(price - (paid || 0));
+    if (remaining < 0) { el.textContent = 'المدفوع أكثر من السعر'; el.classList.add('bad'); return; }
+    if (remaining === 0) { el.textContent = 'مدفوع بالكامل ✓'; el.classList.add('ok'); return; }
+    el.innerHTML = `المتبقي: <b>${esc(fmtMoney(remaining))}</b>`;
+    el.classList.add('due');
+  }
+
   function parseQty(raw) {
     const v = toLatinDigits(raw).trim();
     if (v === '') return '';
@@ -654,6 +757,8 @@
       status: state.form.status,
       flowers: flowers.map((f) => ({ name: f.name || (strict ? 'ورد' : ''), qty: f.qty })),
       notes: $('#fNotes').value.trim(),
+      price: parseMoney($('#fPrice').value),
+      paid: parseMoney($('#fPaid').value),
     };
   }
 
@@ -667,6 +772,11 @@
     mark('date', !data.date);
     mark('customer', !data.customer);
     mark('type', !data.type);
+    let payErr = '';
+    if (Number.isNaN(data.price) || Number.isNaN(data.paid)) payErr = 'اكتب المبلغ بالأرقام فقط';
+    else if (typeof data.price === 'number' && typeof data.paid === 'number' && data.paid > data.price) payErr = 'المدفوع أكثر من السعر الكلي';
+    $('#payErr').textContent = payErr;
+    mark('payment', !!payErr);
     if (errors.length) {
       errors[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
       errors.forEach((f) => { f.classList.remove('shake'); void f.offsetWidth; f.classList.add('shake'); });
@@ -857,6 +967,8 @@
         status: STATUSES[o.status] ? o.status : 'new',
         flowers: Array.isArray(o.flowers) ? o.flowers.map((f) => ({ name: String(f.name || ''), qty: f.qty ?? '' })) : [],
         notes: o.notes || '',
+        price: typeof o.price === 'number' ? o.price : '',
+        paid: typeof o.paid === 'number' ? o.paid : '',
         photoIds: Array.isArray(o.photoIds) ? o.photoIds.map(String) : [],
         createdAt: o.createdAt || Date.now(),
         updatedAt: o.updatedAt || Date.now(),
@@ -972,6 +1084,12 @@
     });
     $('#fCustomer').addEventListener('input', () => $('#orderForm [data-field="customer"]').classList.remove('invalid'));
     $('#fDate').addEventListener('input', () => $('#orderForm [data-field="date"]').classList.remove('invalid'));
+    ['#fPrice', '#fPaid'].forEach((sel) => $(sel).addEventListener('input', () => {
+      updateRemaining();
+      $('#orderForm [data-field="payment"]').classList.remove('invalid');
+    }));
+    $('#fPaidFull').addEventListener('click', () => { $('#fPaid').value = $('#fPrice').value; updateRemaining(); });
+    $('#dueStrip').addEventListener('click', () => { state.showDue = !state.showDue; renderSearch(); if (state.showDue) $('#searchResults').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     $('#fTime').addEventListener('input', () => { $('#fTimeClear').hidden = !$('#fTime').value; });
     $('#fTimeClear').addEventListener('click', () => { $('#fTime').value = ''; $('#fTimeClear').hidden = true; });
     $('#addFlower').addEventListener('click', () => {
@@ -1018,6 +1136,7 @@
       if (!id) return;
       if (e.target.closest('#dEdit')) return openForm({ order: state.orders.get(id) });
       if (e.target.closest('#dDelete')) return deleteOrder(id);
+      if (e.target.closest('#dPayFull')) return markPaidFull(id);
       const st = e.target.closest('#dStatus button[data-value]');
       if (st) return setStatus(id, st.dataset.value);
       const thumb = e.target.closest('#dPhotos .thumb');

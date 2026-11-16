@@ -66,8 +66,14 @@
       <button id="searchClear" class="search-clear" type="button" aria-label="مسح البحث" hidden><svg><use href="#i-x"/></svg></button>
     </label>
 
+    <button id="dueStrip" class="due-strip" type="button" hidden>
+      <span class="due-ico">💰</span>
+      <span class="due-text"><b id="dueTotal"></b><small id="dueSub"></small></span>
+      <span id="dueAction" class="due-action">عرض</span>
+    </button>
+
     <section id="searchResults" class="block" hidden>
-      <div class="section-head"><h2>نتائج البحث</h2><span id="searchCount" class="muted"></span></div>
+      <div class="section-head"><h2 id="resultsTitle">نتائج البحث</h2><span id="searchCount" class="muted"></span></div>
       <div id="searchList" class="list"></div>
     </section>
 
@@ -164,6 +170,27 @@
           <div id="flowerRows" class="flower-rows"></div>
           <button id="addFlower" class="btn ghost block-btn" type="button"><svg><use href="#i-plus"/></svg>إضافة ورد</button>
           <datalist id="flowerNames"></datalist>
+        </div>
+
+        <div class="field" data-field="payment">
+          <label>الدفع <span class="opt">(اختياري)</span></label>
+          <div class="pay-box">
+            <div class="row-2">
+              <div>
+                <label class="sub-label" for="fPrice">السعر الكلي</label>
+                <div class="money"><input id="fPrice" type="text" inputmode="decimal" placeholder="0" autocomplete="off"><span class="cur">د.ك</span></div>
+              </div>
+              <div>
+                <label class="sub-label" for="fPaid">المدفوع</label>
+                <div class="money"><input id="fPaid" type="text" inputmode="decimal" placeholder="0" autocomplete="off"><span class="cur">د.ك</span></div>
+              </div>
+            </div>
+            <div class="pay-foot">
+              <div id="fRemaining" class="pay-remaining"></div>
+              <button id="fPaidFull" class="pill-btn" type="button">دُفع كامل</button>
+            </div>
+          </div>
+          <p class="err" id="payErr"></p>
         </div>
 
         <div class="field">
