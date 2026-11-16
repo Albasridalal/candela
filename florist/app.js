@@ -239,6 +239,7 @@
   // ---------------------------------------------------------------
   const layers = [];
   let popWaiters = [];
+  let useHistory = true; // falls back to plain closing where the browser blocks history (e.g. sandboxed previews)
 
   function openLayer(el, onClose) {
     layers.push({ el, onClose });
@@ -248,10 +249,13 @@
     void el.offsetWidth;
     el.classList.add('open');
     document.body.classList.add('noscroll');
-    history.pushState({ layer: layers.length }, '');
+    if (useHistory) {
+      try { history.pushState({ layer: layers.length }, ''); } catch (e) { useHistory = false; }
+    }
   }
   function closeLayer() {
     if (!layers.length) return Promise.resolve();
+    if (!useHistory) { hideTop(); return Promise.resolve(); }
     return new Promise((resolve) => {
       popWaiters.push(resolve);
       history.back();
@@ -272,7 +276,7 @@
     const waiters = popWaiters; popWaiters = [];
     waiters.forEach((fn) => fn());
   });
-  if (history.state && history.state.layer) history.replaceState(null, '');
+  try { if (history.state && history.state.layer) history.replaceState(null, ''); } catch (e) { useHistory = false; }
 
   document.addEventListener('click', (e) => {
     const closer = e.target.closest('[data-close]');
