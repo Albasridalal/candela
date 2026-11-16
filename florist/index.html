@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>دفتر الورد</title>
+  <meta name="description" content="تنظيم طلبات الكورنرات والدزّات">
+  <meta name="theme-color" content="#FBF7F3">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="دفتر الورد">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-flower" viewBox="0 0 48 48">
+      <g fill="currentColor" opacity=".9">
+        <ellipse cx="24" cy="13" rx="7" ry="9"/>
+        <ellipse cx="24" cy="13" rx="7" ry="9" transform="rotate(72 24 24)"/>
+        <ellipse cx="24" cy="13" rx="7" ry="9" transform="rotate(144 24 24)"/>
+        <ellipse cx="24" cy="13" rx="7" ry="9" transform="rotate(216 24 24)"/>
+        <ellipse cx="24" cy="13" rx="7" ry="9" transform="rotate(288 24 24)"/>
+      </g>
+      <circle cx="24" cy="24" r="5.5" fill="#F7E3C9"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></g></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.1-6.5-11a6.5 6.5 0 0 1 13 0c0 4.9-6.5 11-6.5 11z" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.7l1.3-2h5l1.3 2h1.7A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="12" cy="12.5" r="3.3" stroke="currentColor" stroke-width="1.8" fill="none"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M5 19h4L19 9l-4-4L5 15z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 19h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M11 18h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"><svg><use href="#i-flower"/></svg></span>
+      <div>
+        <h1>دفتر الورد</h1>
+        <p>كورنرات ودزّات</p>
+      </div>
+    </div>
+    <button id="menuBtn" class="icon-btn" type="button" aria-label="القائمة"><svg><use href="#i-menu"/></svg></button>
+  </header>
+
+  <main class="container">
+    <label class="search">
+      <svg class="search-ico"><use href="#i-search"/></svg>
+      <input id="searchInput" type="search" placeholder="بحث باسم العميل…" autocomplete="off" enterkeyhint="search">
+      <button id="searchClear" class="search-clear" type="button" aria-label="مسح البحث" hidden><svg><use href="#i-x"/></svg></button>
+    </label>
+
+    <section id="searchResults" class="block" hidden>
+      <div class="section-head"><h2>نتائج البحث</h2><span id="searchCount" class="muted"></span></div>
+      <div id="searchList" class="list"></div>
+    </section>
+
+    <section class="card calendar" id="calendarCard">
+      <div class="cal-head">
+        <button id="prevMonth" class="icon-btn soft" type="button" aria-label="الشهر السابق"><svg><use href="#i-prev"/></svg></button>
+        <h2 id="monthTitle" aria-live="polite"></h2>
+        <button id="nextMonth" class="icon-btn soft" type="button" aria-label="الشهر التالي"><svg><use href="#i-next"/></svg></button>
+      </div>
+      <div class="cal-sub">
+        <div class="legend">
+          <span><i class="dot corner"></i>كورنر ورد</span>
+          <span><i class="dot delivery"></i>دزة</span>
+        </div>
+        <button id="todayBtn" class="pill-btn" type="button">اليوم</button>
+      </div>
+      <div id="weekdays" class="weekdays"></div>
+      <div id="calGrid" class="cal-grid"></div>
+    </section>
+
+    <section class="block">
+      <div class="section-head"><h2>الطلبات القادمة</h2><span id="upcomingCount" class="muted"></span></div>
+      <div id="upcomingList" class="list"></div>
+    </section>
+  </main>
+
+  <button id="fab" class="fab" type="button"><svg><use href="#i-plus"/></svg><span>طلب جديد</span></button>
+
+  <!-- Day orders sheet -->
+  <div id="daySheet" class="layer sheet" hidden>
+    <div class="backdrop" data-close></div>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="dayTitle">
+      <div class="grabber"></div>
+      <div class="panel-head">
+        <div>
+          <h2 id="dayTitle"></h2>
+          <p id="daySub" class="muted"></p>
+        </div>
+        <button class="icon-btn soft" type="button" data-close aria-label="إغلاق"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <div id="dayList" class="list panel-scroll"></div>
+      <div class="panel-foot">
+        <button id="dayAdd" class="btn primary block-btn" type="button"><svg><use href="#i-plus"/></svg>إضافة طلب لهذا اليوم</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Order form -->
+  <div id="formSheet" class="layer page" hidden>
+    <div class="page-inner" role="dialog" aria-modal="true" aria-labelledby="formTitle">
+      <div class="page-bar">
+        <button id="formCancel" class="text-btn" type="button">إلغاء</button>
+        <h2 id="formTitle">طلب جديد</h2>
+        <button id="formSaveTop" class="text-btn strong" type="button">حفظ</button>
+      </div>
+      <form id="orderForm" class="page-body" novalidate>
+        <div class="row-2">
+          <div class="field" data-field="date">
+            <label for="fDate">التاريخ <b class="req">*</b></label>
+            <input id="fDate" type="date" required>
+            <p class="err">اختر التاريخ</p>
+          </div>
+          <div class="field">
+            <label for="fTime">الوقت <span class="opt">(اختياري)</span></label>
+            <div class="time-wrap">
+              <input id="fTime" type="time">
+              <button id="fTimeClear" class="mini-clear" type="button" aria-label="مسح الوقت" hidden><svg><use href="#i-x"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" data-field="customer">
+          <label for="fCustomer">اسم العميل <b class="req">*</b></label>
+          <input id="fCustomer" type="text" autocomplete="off" placeholder="مثال: أم محمد">
+          <p class="err">اكتب اسم العميل</p>
+        </div>
+
+        <div class="field" data-field="type">
+          <label>نوع الطلب <b class="req">*</b></label>
+          <div class="seg type-seg" id="fType" role="radiogroup">
+            <button type="button" role="radio" data-value="corner" class="seg-corner"><i class="dot corner"></i>كورنر ورد</button>
+            <button type="button" role="radio" data-value="delivery" class="seg-delivery"><i class="dot delivery"></i>دزة</button>
+          </div>
+          <p class="err">اختر نوع الطلب</p>
+        </div>
+
+        <div class="field">
+          <label for="fLocation" id="fLocationLabel">مكان المناسبة / عنوان التوصيل</label>
+          <textarea id="fLocation" rows="2" placeholder="القاعة، المنطقة، القطعة، الشارع…"></textarea>
+        </div>
+
+        <div class="field">
+          <label>تفاصيل الورد</label>
+          <div id="flowerRows" class="flower-rows"></div>
+          <button id="addFlower" class="btn ghost block-btn" type="button"><svg><use href="#i-plus"/></svg>إضافة ورد</button>
+          <datalist id="flowerNames"></datalist>
+        </div>
+
+        <div class="field">
+          <label>الحالة</label>
+          <div class="seg status-seg" id="fStatus" role="radiogroup">
+            <button type="button" role="radio" data-value="new">جديد</button>
+            <button type="button" role="radio" data-value="confirmed">مؤكد</button>
+            <button type="button" role="radio" data-value="done">منجز</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="fNotes">ملاحظات <span class="opt">(اختياري)</span></label>
+          <textarea id="fNotes" rows="3" placeholder="ألوان، تنسيق، كرت إهداء…"></textarea>
+        </div>
+
+        <div class="field">
+          <label>صور مرجعية <span class="opt">(اختياري)</span></label>
+          <div id="photoGrid" class="photo-grid">
+            <label class="photo-add" for="fPhotos">
+              <svg><use href="#i-camera"/></svg>
+              <span>إضافة صور</span>
+            </label>
+          </div>
+          <input id="fPhotos" class="visually-hidden" type="file" accept="image/*" multiple>
+          <p id="photoBusy" class="muted small" hidden>جاري تجهيز الصور…</p>
+        </div>
+
+        <button id="formSave" class="btn primary block-btn big" type="submit">حفظ الطلب</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Order details -->
+  <div id="detailSheet" class="layer page" hidden>
+    <div class="page-inner" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+      <div class="page-bar">
+        <button class="text-btn" type="button" data-close><svg class="back-ico"><use href="#i-prev"/></svg>رجوع</button>
+        <h2 id="detailTitle">تفاصيل الطلب</h2>
+        <button id="detailEditTop" class="text-btn strong" type="button">تعديل</button>
+      </div>
+      <div id="detailBody" class="page-body"></div>
+    </div>
+  </div>
+
+  <!-- Menu -->
+  <div id="menuSheet" class="layer sheet" hidden>
+    <div class="backdrop" data-close></div>
+    <div class="panel" role="dialog" aria-modal="true" aria-label="القائمة">
+      <div class="grabber"></div>
+      <div class="panel-head">
+        <div>
+          <h2>النسخ الاحتياطي</h2>
+          <p id="menuStats" class="muted"></p>
+        </div>
+        <button class="icon-btn soft" type="button" data-close aria-label="إغلاق"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <div class="menu-list">
+        <button id="exportBtn" class="menu-item" type="button">
+          <span class="menu-ico"><svg><use href="#i-download"/></svg></span>
+          <span><b>تصدير نسخة احتياطية</b><small>حفظ كل الطلبات والصور في ملف واحد</small></span>
+        </button>
+        <button id="importBtn" class="menu-item" type="button">
+          <span class="menu-ico"><svg><use href="#i-upload"/></svg></span>
+          <span><b>استيراد نسخة احتياطية</b><small>استرجاع الطلبات من ملف محفوظ</small></span>
+        </button>
+        <button id="installBtn" class="menu-item" type="button" hidden>
+          <span class="menu-ico"><svg><use href="#i-phone"/></svg></span>
+          <span><b>تثبيت التطبيق</b><small>إضافة أيقونة على الشاشة الرئيسية</small></span>
+        </button>
+        <div id="iosHint" class="hint" hidden>
+          <b>لإضافة التطبيق على الآيفون:</b> افتح الرابط في Safari ← اضغط زر المشاركة <span class="share-glyph">⬆︎</span> ← «إضافة إلى الشاشة الرئيسية».
+        </div>
+        <p id="backupInfo" class="muted small center"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox -->
+  <div id="lightbox" class="layer lightbox" hidden>
+    <button class="lb-close icon-btn" type="button" data-close aria-label="إغلاق"><svg><use href="#i-x"/></svg></button>
+    <img id="lbImg" alt="">
+    <div class="lb-nav">
+      <button id="lbPrev" class="icon-btn" type="button" aria-label="السابقة"><svg><use href="#i-prev"/></svg></button>
+      <span id="lbCount"></span>
+      <button id="lbNext" class="icon-btn" type="button" aria-label="التالية"><svg><use href="#i-next"/></svg></button>
+    </div>
+  </div>
+
+  <!-- Confirm dialog -->
+  <div id="confirmDlg" class="layer dialog" hidden>
+    <div class="backdrop" data-close></div>
+    <div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="dlgTitle">
+      <h3 id="dlgTitle"></h3>
+      <p id="dlgMsg"></p>
+      <div class="dlg-actions">
+        <button id="dlgOk" class="btn primary" type="button"></button>
+        <button id="dlgAlt" class="btn ghost" type="button" hidden></button>
+        <button id="dlgCancel" class="btn ghost" type="button">إلغاء</button>
+      </div>
+    </div>
+  </div>
+
+  <input id="importInput" class="visually-hidden" type="file" accept="application/json,.json" tabindex="-1" aria-hidden="true">
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
